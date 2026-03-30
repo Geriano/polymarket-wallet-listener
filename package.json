@@ -1,0 +1,37 @@
+{
+  "name": "@icdragoneyes/polymarket-wallet-listener",
+  "version": "0.1.0",
+  "description": "polymarket wallet trade listener",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "tsc --noEmit",
+    "example:watch": "tsx examples/watch.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "polymarket",
+    "wallet",
+    "listener",
+    "trade"
+  ],
+  "author": "Arena Dev",
+  "license": "MIT",
+  "dependencies": {
+    "@noble/hashes": "^1.7.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/ws": "^8.5.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^6.0.2"
+  }
+}
