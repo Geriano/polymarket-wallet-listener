@@ -1,4 +1,4 @@
-# @icdragoneyes/polymarket-wallet-listener
+# polymarket-wallet-listener
 
 TypeScript SDK for real-time Polymarket wallet trade monitoring via WebSocket. Watch specific wallets and get notified when they trade, split, merge, or redeem positions.
 
@@ -18,13 +18,13 @@ Designed for copy-trading, whale-watching, and position-tracking workflows.
 ## Install
 
 ```bash
-npm install @icdragoneyes/polymarket-wallet-listener
+npm install polymarket-wallet-listener
 ```
 
 ## Quick Start
 
 ```ts
-import { Watcher, Side } from '@icdragoneyes/polymarket-wallet-listener'
+import { Watcher, Side } from 'polymarket-wallet-listener'
 
 const watcher = new Watcher({
   wsUrl: 'ws://your-stream-server/ws',
@@ -333,7 +333,7 @@ Polymarket uses Gnosis Safe proxy wallets. Users have two addresses:
 By default, the SDK derives the proxy address from any input and subscribes to **both** forms, so you don't need to know which type of address you have.
 
 ```ts
-import { deriveProxyAddress, normalizeAddress } from '@icdragoneyes/polymarket-wallet-listener'
+import { deriveProxyAddress, normalizeAddress } from 'polymarket-wallet-listener'
 
 const proxy = deriveProxyAddress('0x25d76e8eaF02494c31Cda797E58364874e598333')
 // '0xdbCb463dB35Ad1a011B45e40154fc939CCDD665E'
@@ -365,7 +365,7 @@ import {
   ReconnectError,    // Max reconnect attempts exceeded
   ProtocolError,     // Failed to parse server message
   ServerError,       // Server returned an error message
-} from '@icdragoneyes/polymarket-wallet-listener'
+} from 'polymarket-wallet-listener'
 
 watcher.on('error', (err) => {
   if (err instanceof ReconnectError) {

@@ -1,5 +1,5 @@
 {
-  "name": "@icdragoneyes/polymarket-wallet-listener",
+  "name": "polymarket-wallet-listener",
   "version": "0.1.0",
   "description": "polymarket wallet trade listener",
   "main": "dist/index.js",
