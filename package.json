@@ -13,6 +13,7 @@
     "dev": "tsup --watch",
     "lint": "tsc --noEmit",
     "example:watch": "tsx examples/watch.ts",
+    "example:multiple": "tsx examples/multiple.ts",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

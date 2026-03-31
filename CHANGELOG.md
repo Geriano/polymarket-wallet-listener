@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-03-31
+
+### Fixed
+- Callback errors in `watch()` are now logged via `console.warn` instead of silently swallowed
+- Outcome filter fallback uses filter metadata when outcome registry is empty
+- Subscription cleanup no longer removes subscriptions from the map (allows re-watching after `unwatch()`)
+- Upstream data validation guards prevent crashes on malformed server messages
+- Dead code removed from `computeMinSize` in protocol module
+- `debug` lifecycle event is now properly typed in `LifecycleEventMap`
+
 ## [0.1.0] - 2026-03-31
 
 ### Added
