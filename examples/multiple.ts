@@ -12,8 +12,8 @@
 import { Watcher } from '../src/index.js';
 import type { WatcherEvent } from '../src/index.js';
 
-const WS_URL = 'ws://5.223.66.160:3001/ws';
-const GAMMA_URL = 'https://gamma-api.polymarket.com';
+const WS_URL = process.env.WS_URL || 'ws://localhost:3001/ws';
+const GAMMA_URL = process.env.GAMMA_URL || 'https://gamma-api.polymarket.com';
 
 const DEBUG = process.env.DEBUG === '1' || process.env.DEBUG === 'true';
 
