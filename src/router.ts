@@ -61,17 +61,23 @@ export class EventRouter {
 
   route(data: Record<string, unknown>): void {
     const eventType = data.type as string;
+    if (!eventType) return;
+
     switch (eventType) {
       case 'order_filled':
+        if (!data.maker || !data.taker || !data.exchange) break;
         this.routeOrderFilled(data as unknown as OrderFilledEvent);
         break;
       case 'position_split':
+        if (!data.stakeholder) break;
         this.routePositionSplit(data as unknown as PositionSplitEvent);
         break;
       case 'positions_merge':
+        if (!data.stakeholder) break;
         this.routePositionsMerge(data as unknown as PositionsMergeEvent);
         break;
       case 'payout_redemption':
+        if (!data.redeemer) break;
         this.routePayoutRedemption(data as unknown as PayoutRedemptionEvent);
         break;
     }
@@ -138,11 +144,11 @@ export class EventRouter {
       // Client-side size filtering
       if (outcomeFilter?.size != null && event.usdc_amount < outcomeFilter.size) continue;
 
-      // Enrich outcome info
+      // Enrich outcome info — prefer registry, fall back to the matched filter
       const outcome: OutcomeInfo = this.outcomeRegistry.get(outcomeTokenId) ?? {
-        id: outcomeTokenId,
-        name: 'unknown',
-        price: '0',
+        id: outcomeFilter?.id ?? outcomeTokenId,
+        name: outcomeFilter?.name ?? 'unknown',
+        price: outcomeFilter?.price ?? '0',
       };
 
       const tradeEvent: TradeEvent = {
@@ -229,10 +235,12 @@ export class EventRouter {
     try {
       const result = sub.callback!(event);
       if (result instanceof Promise) {
-        result.catch(() => {});
+        result.catch((err) => {
+          console.warn('[polymarket-wallet-listener] async callback error:', err);
+        });
       }
-    } catch {
-      // Swallow sync callback errors
+    } catch (err) {
+      console.warn('[polymarket-wallet-listener] sync callback error:', err);
     }
   }
 }

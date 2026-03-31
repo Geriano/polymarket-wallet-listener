@@ -111,6 +111,7 @@ export interface LifecycleEventMap {
   disconnected: (code: number, reason: string) => void;
   reconnecting: (attempt: number, delay: number) => void;
   error: (error: Error) => void;
+  debug: (label: string, data: string) => void;
 }
 
 export type LifecycleEvent = keyof LifecycleEventMap;

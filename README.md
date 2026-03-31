@@ -202,7 +202,7 @@ sub.watch(async (event) => {
 })
 ```
 
-The callback can be sync or async. Errors thrown in the callback are silently caught to prevent breaking the event stream.
+The callback can be sync or async. Errors thrown in the callback are caught and logged via `console.warn` to prevent breaking the event stream while remaining visible for debugging.
 
 ### `subscription.unwatch()`
 
@@ -321,6 +321,11 @@ watcher.on('error', (err: Error) => {
   // err is one of: ConnectionError, ReconnectError, ProtocolError, ServerError
   console.error(err.name, err.message)
 })
+
+// Debug event — useful for development diagnostics
+watcher.on('debug', (label: string, data: string) => {
+  console.log(`[debug:${label}]`, data)
+})
 ```
 
 ## Wallet Resolution
@@ -405,7 +410,7 @@ export type {
   EventKind,           // 'trade' | 'split' | 'merge' | 'redeem'
   ReconnectOptions,
   KeepaliveOptions,
-  LifecycleEvent,
+  LifecycleEvent,      // 'connected' | 'disconnected' | 'reconnecting' | 'error' | 'debug'
   LifecycleEventMap,
 }
 ```

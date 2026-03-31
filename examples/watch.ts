@@ -67,7 +67,6 @@ async function main() {
     debug('Error details:', err);
   });
 
-  // @ts-ignore — debug is an internal event
   watcher.on('debug', (label: string, data: string) => {
     debug(`[ws:${label}]`, data);
   });

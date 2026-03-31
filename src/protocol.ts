@@ -82,5 +82,5 @@ function computeMinSize(sub: InternalSubscription): number | null {
     if (o.size == null) return null;
     if (o.size < min) min = o.size;
   }
-  return min === Infinity ? null : min;
+  return min;
 }

@@ -233,11 +233,11 @@ export class Watcher {
   // ─── Internal: Subscription Management ───────────────────────────────────
 
   private rebuildSubscription(): void {
-    // Clean up unwatched subscriptions from router
     for (const [id, sub] of this.subscriptions) {
       if (!sub.callback) {
         this.router.unregister(id);
-        this.subscriptions.delete(id);
+      } else {
+        this.router.register(sub);
       }
     }
     this.sendCurrentSubscription();
