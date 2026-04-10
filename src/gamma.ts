@@ -1,5 +1,12 @@
 import type { OutcomeInfo } from './types.js';
 
+/**
+ * Client for the Gamma REST API.
+ *
+ * @deprecated Since server v0.3.0, market metadata is provided automatically via
+ * server-side enrichment (the `gamma` field on events). This client is only
+ * needed for explicit slug-based lookups via `watcher.outcomes(slug)`.
+ */
 export class GammaClient {
   private readonly baseUrl: string;
 

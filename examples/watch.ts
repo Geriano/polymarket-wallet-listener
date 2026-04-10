@@ -1,18 +1,17 @@
 /**
- * Watch a wallet's trades on a specific market.
+ * Watch all markets and outcomes for a wallet.
  *
  * Usage:
- *   npm run example:watch -- <wallet> <slug>
+ *   npm run example:watch -- <wallet>
  *
  * Example:
- *   npm run example:watch -- 0x25d76e8eaF02494c31Cda797E58364874e598333 btc-updown-5m-17xx91
+ *   npm run example:watch -- 0x25d76e8eaF02494c31Cda797E58364874e598333
  */
 
 import { Watcher, deriveProxyAddress } from '../src/index.js';
 import type { WatcherEvent } from '../src/index.js';
 
 const WS_URL = process.env.WS_URL || 'ws://localhost:3001/ws';
-const GAMMA_URL = process.env.GAMMA_URL || 'https://gamma-api.polymarket.com';
 
 const DEBUG = process.env.DEBUG === '1' || process.env.DEBUG === 'true';
 
@@ -21,10 +20,9 @@ function debug(...args: unknown[]): void {
 }
 
 const wallet = process.argv[2];
-const slug = process.argv[3];
 
-if (!wallet || !slug) {
-  console.error('Usage: npm run example:watch -- <wallet> <slug>');
+if (!wallet) {
+  console.error('Usage: npm run example:watch -- <wallet>');
   console.error('  Set DEBUG=1 for verbose logging');
   process.exit(1);
 }
@@ -35,16 +33,13 @@ async function main() {
   console.log('=== Polymarket Wallet Watcher ===\n');
   console.log(`Wallet:  ${wallet}`);
   console.log(`Proxy:   ${proxy}`);
-  console.log(`Slug:    ${slug}`);
   console.log(`WS:      ${WS_URL}`);
   console.log(`Debug:   ${DEBUG ? 'ON' : 'OFF (set DEBUG=1 to enable)'}\n`);
 
-  debug('Creating watcher with options:', { wsUrl: WS_URL, gammaUrl: GAMMA_URL });
+  debug('Creating watcher with options:', { wsUrl: WS_URL });
 
-  const watcher = new Watcher({
-    wsUrl: WS_URL,
-    gammaUrl: GAMMA_URL,
-  });
+  // No gammaUrl needed — server provides enrichment via gamma/clob fields
+  const watcher = new Watcher({ wsUrl: WS_URL });
 
   // Lifecycle events
   watcher.on('connected', () => {
@@ -71,25 +66,9 @@ async function main() {
     debug(`[ws:${label}]`, data);
   });
 
-  // Fetch outcomes
-  debug('Fetching outcomes from Gamma API:', `${GAMMA_URL}/markets/slug/${slug}`);
-  console.log('Fetching outcomes...');
-  const outcomes = await watcher.outcomes(slug);
-
-  debug('Raw outcomes received:', JSON.stringify(outcomes, null, 2));
-  console.log('\nOutcomes:');
-  console.table(outcomes.map((o) => ({ name: o.name, price: o.price, id: o.id.slice(0, 20) + '...' })));
-
-  // Subscribe to all outcomes, all sides, all event types
-  const subscribeOpts = {
-    outcomes: outcomes.map((o) => ({ ...o })),
-    events: ['trade', 'split', 'merge', 'redeem'] as const,
-  };
-  debug('Subscribing with options:', JSON.stringify(subscribeOpts, null, 2));
-
+  // Subscribe to all markets, all outcomes, all event types
   const sub = watcher.subscribe(wallet, {
-    outcomes: outcomes.map((o) => ({ ...o })),
-    events: ['trade', 'split', 'merge', 'redeem'],
+    events: ['trade', 'split', 'merge', 'redeem', 'convert', 'resolve'],
     skipProxy: true,
   });
 
@@ -102,40 +81,61 @@ async function main() {
   sub.watch((event: WatcherEvent) => {
     debug('Raw event received:', JSON.stringify(event.raw, null, 2));
     const ts = new Date(event.timestamp).toISOString();
+    const slug = event.gamma?.slug ?? '';
 
     switch (event.type) {
       case 'trade':
         console.log(
-          `[${ts}] TRADE | ${event.side.padEnd(4)} | ${event.outcome.name.padEnd(10)} | ` +
+          `[${ts}] TRADE | ${event.market} | ${event.side.padEnd(4)} | ${event.outcome.name.padEnd(10)} | ` +
             `$${event.size.toFixed(2).padStart(10)} | price ${event.price.toFixed(4)} | ` +
+            `bid ${event.clob?.best_bid ?? 'n/a'} ask ${event.clob?.best_ask ?? 'n/a'} | ` +
             `tx ${event.tx.slice(0, 10)}...`,
         );
         break;
 
       case 'split':
         console.log(
-          `[${ts}] SPLIT | $${event.amount.toFixed(2).padStart(10)} | ` +
+          `[${ts}] SPLIT | ${slug} | $${event.amount.toFixed(2).padStart(10)} | ` +
             `condition ${event.conditionId.slice(0, 10)}... | tx ${event.tx.slice(0, 10)}...`,
         );
         break;
 
       case 'merge':
         console.log(
-          `[${ts}] MERGE | $${event.amount.toFixed(2).padStart(10)} | ` +
+          `[${ts}] MERGE | ${slug} | $${event.amount.toFixed(2).padStart(10)} | ` +
             `condition ${event.conditionId.slice(0, 10)}... | tx ${event.tx.slice(0, 10)}...`,
         );
         break;
 
       case 'redeem':
         console.log(
-          `[${ts}] REDEEM | $${event.payout.toFixed(2).padStart(10)} | ` +
+          `[${ts}] REDEEM | ${slug} | $${event.payout.toFixed(2).padStart(10)} | ` +
             `condition ${event.conditionId.slice(0, 10)}... | tx ${event.tx.slice(0, 10)}...`,
         );
+        break;
+
+      case 'convert':
+        console.log(
+          `[${ts}] CONVERT | ${slug} | $${event.amount.toFixed(2).padStart(10)} | ` +
+            `market ${event.marketId.slice(0, 10)}... | tx ${event.tx.slice(0, 10)}...`,
+        );
+        break;
+
+      case 'resolve':
+        console.log(
+          `[${ts}] RESOLVE | ${event.gamma?.question ?? 'unknown'} | ` +
+            `payouts [${event.payoutNumerators.join(',')}] | ` +
+            `condition ${event.conditionId.slice(0, 10)}... | tx ${event.tx.slice(0, 10)}...`,
+        );
+        break;
+
+      default:
+        console.log(`[${ts}] ${event.type.toUpperCase()} | tx ${event.tx.slice(0, 10)}...`);
         break;
     }
   });
 
-  console.log('\nWatching... (Ctrl+C to stop)\n');
+  console.log('\nWatching all markets... (Ctrl+C to stop)\n');
 
   // Clean shutdown
   process.on('SIGINT', () => {

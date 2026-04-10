@@ -29,7 +29,7 @@ type WebSocketLike = {
 
 export class Watcher {
   private readonly wsUrl: string;
-  private readonly gamma: GammaClient;
+  private readonly gamma: GammaClient | null;
   private readonly reconnectOpts: ReconnectOptions;
   private readonly keepaliveOpts: KeepaliveOptions;
   private readonly WebSocketCtor: unknown;
@@ -55,7 +55,7 @@ export class Watcher {
 
   constructor(options: WatcherOptions) {
     this.wsUrl = options.wsUrl;
-    this.gamma = new GammaClient(options.gammaUrl);
+    this.gamma = options.gammaUrl ? new GammaClient(options.gammaUrl) : null;
     this.reconnectOpts = { ...DEFAULT_RECONNECT, ...options.reconnect };
     this.keepaliveOpts = { ...DEFAULT_KEEPALIVE, ...options.keepalive };
     this.WebSocketCtor = options.WebSocket ?? undefined;
@@ -101,7 +101,18 @@ export class Watcher {
    * @param slug - Market slug (e.g., 'btc-updown-5m-17xx91')
    * @param cache - Use cached result if available (default: true)
    */
+  /**
+   * Fetch outcome metadata for a market slug.
+   * Requires `gammaUrl` to be set in WatcherOptions.
+   */
   async outcomes(slug: string, cache: boolean = true): Promise<OutcomeInfo[]> {
+    if (!this.gamma) {
+      throw new Error(
+        'gammaUrl is required for slug-based outcome lookups. ' +
+        'Provide it in WatcherOptions or use server enrichment instead.',
+      );
+    }
+
     if (cache) {
       const cached = this.outcomesCache.get(slug);
       if (cached) return cached;

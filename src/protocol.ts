@@ -1,72 +1,66 @@
-import type { EventTypeSubscription, FieldFilter, InternalSubscription, SubscribeMessage } from './types.js';
+import type { EventKind, EventTypeSubscription, FieldFilter, InternalSubscription, SubscribeMessage } from './types.js';
+import { EVENT_KIND_TO_WIRE } from './types.js';
+
+const ADDRESS_FIELDS: Record<EventKind, string[]> = {
+  trade: ['maker', 'taker'],
+  match: ['taker_order_maker'],
+  cancel: [],
+  fee: ['receiver'],
+  split: ['stakeholder'],
+  merge: ['stakeholder'],
+  redeem: ['redeemer'],
+  convert: ['stakeholder'],
+  prepare: [],
+  resolve: [],
+  transfer: ['from', 'to'],
+  transfer_batch: ['from', 'to'],
+  token_registered: [],
+  trading_paused: [],
+  trading_unpaused: [],
+};
 
 /**
  * Build the upstream WebSocket subscribe message from all active subscriptions.
- *
- * For each subscription, generates server-side filter groups:
- * - trade: 2 groups per address (maker eq addr, taker eq addr) + optional usdc_amount filter
- * - split: 1 group per address (stakeholder eq addr)
- * - merge: 1 group per address (stakeholder eq addr)
- * - redeem: 1 group per address (redeemer eq addr)
  */
 export function buildSubscribeMessage(
   subscriptions: Map<string, InternalSubscription>,
 ): SubscribeMessage {
   const groups: EventTypeSubscription[] = [];
+  const broadcastSeen = new Set<string>();
 
   for (const sub of subscriptions.values()) {
     if (!sub.callback) continue;
 
     const allAddresses = [...sub.wallets, ...sub.proxyWallets];
     const events = sub.options.events;
-
-    // Compute minimum size threshold across all outcome filters for server-side optimization
     const minSize = computeMinSize(sub);
 
-    for (const addr of allAddresses) {
-      if (events.includes('trade')) {
-        // order_filled: filter by maker
-        groups.push(buildOrderFilledGroup(addr, 'maker', minSize));
-        // order_filled: filter by taker
-        groups.push(buildOrderFilledGroup(addr, 'taker', minSize));
-      }
+    for (const kind of events) {
+      const wireType = EVENT_KIND_TO_WIRE[kind];
+      const addrFields = ADDRESS_FIELDS[kind];
 
-      if (events.includes('split')) {
-        groups.push({
-          event_type: 'position_split',
-          filters: [{ field: 'stakeholder', op: 'eq', value: addr }],
-        });
-      }
-
-      if (events.includes('merge')) {
-        groups.push({
-          event_type: 'positions_merge',
-          filters: [{ field: 'stakeholder', op: 'eq', value: addr }],
-        });
-      }
-
-      if (events.includes('redeem')) {
-        groups.push({
-          event_type: 'payout_redemption',
-          filters: [{ field: 'redeemer', op: 'eq', value: addr }],
-        });
+      if (addrFields.length === 0) {
+        // Broadcast event — subscribe once with no address filter
+        if (!broadcastSeen.has(wireType)) {
+          broadcastSeen.add(wireType);
+          groups.push({ event_type: wireType });
+        }
+      } else {
+        for (const addr of allAddresses) {
+          for (const field of addrFields) {
+            const filters: FieldFilter[] = [{ field, op: 'eq', value: addr }];
+            // Server-side size optimization for order_filled only
+            if (wireType === 'order_filled' && minSize !== null) {
+              filters.push({ field: 'usdc_amount', op: 'gte', value: minSize });
+            }
+            groups.push({ event_type: wireType, filters });
+          }
+        }
       }
     }
   }
 
   return { action: 'subscribe', subscriptions: groups };
-}
-
-function buildOrderFilledGroup(
-  addr: string,
-  role: 'maker' | 'taker',
-  minSize: number | null,
-): EventTypeSubscription {
-  const filters: FieldFilter[] = [{ field: role, op: 'eq', value: addr }];
-  if (minSize !== null) {
-    filters.push({ field: 'usdc_amount', op: 'gte', value: minSize });
-  }
-  return { event_type: 'order_filled', filters };
 }
 
 /**

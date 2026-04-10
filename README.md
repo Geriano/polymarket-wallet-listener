@@ -1,12 +1,13 @@
 # polymarket-wallet-listener
 
-TypeScript SDK for real-time Polymarket wallet trade monitoring via WebSocket. Watch specific wallets and get notified when they trade, split, merge, or redeem positions.
+TypeScript SDK for real-time Polymarket wallet monitoring via WebSocket. Watch specific wallets and get notified of trades, splits, merges, redemptions, transfers, resolutions, and more — with full market metadata and real-time pricing from server-side enrichment.
 
 Designed for copy-trading, whale-watching, and position-tracking workflows.
 
 ## Features
 
-- Real-time trade, split, merge, and redeem event streaming
+- **15 event types**: trade, match, cancel, fee, split, merge, redeem, convert, prepare, resolve, transfer, transfer_batch, token_registered, trading_paused, trading_unpaused
+- **Server-side enrichment**: every event carries `gamma` (market metadata) and `clob` (real-time pricing) fields automatically
 - Per-outcome filtering with side and minimum size thresholds
 - Automatic proxy wallet derivation (Gnosis Safe CREATE2) with option to skip
 - Multi-wallet subscriptions in a single WebSocket connection
@@ -24,28 +25,24 @@ npm install polymarket-wallet-listener
 ## Quick Start
 
 ```ts
-import { Watcher, Side } from 'polymarket-wallet-listener'
+import { Watcher } from 'polymarket-wallet-listener'
 
+// No gammaUrl needed — server provides enrichment automatically
 const watcher = new Watcher({
   wsUrl: 'ws://your-stream-server/ws',
-  gammaUrl: 'https://gamma-api.polymarket.com',
 })
 
-// Fetch market outcomes
-const outcomes = await watcher.outcomes('btc-updown-5m-17xx91')
-
-// Watch a wallet
+// Watch all markets for a wallet
 const sub = watcher.subscribe('0xWhaleAddress', {
-  outcomes: [
-    { ...outcomes[0], side: Side.Buy, size: 10 },  // "Up" buys >= $10
-    { ...outcomes[1] },                              // "Down" all trades
-  ],
   events: ['trade', 'split', 'merge', 'redeem'],
 })
 
 sub.watch(async (event) => {
   if (event.type === 'trade') {
-    console.log(`${event.side} ${event.outcome.name} $${event.size} @ ${event.price}`)
+    // Market metadata and pricing from server enrichment
+    console.log(`${event.market} | ${event.side} ${event.outcome.name} $${event.size}`)
+    console.log(`  bid: ${event.clob?.best_bid} ask: ${event.clob?.best_ask}`)
+    console.log(`  volume: ${event.gamma?.volume_24hr}`)
   }
 })
 
@@ -54,42 +51,71 @@ sub.unwatch()
 watcher.close()
 ```
 
+### With slug-based outcome filtering
+
+```ts
+import { Watcher, Side } from 'polymarket-wallet-listener'
+
+// gammaUrl needed for slug-based lookups
+const watcher = new Watcher({
+  wsUrl: 'ws://your-stream-server/ws',
+  gammaUrl: 'https://gamma-api.polymarket.com',
+})
+
+const outcomes = await watcher.outcomes('btc-updown-5m-17xx91')
+
+const sub = watcher.subscribe('0xWhaleAddress', {
+  outcomes: [
+    { ...outcomes[0], side: Side.Buy, size: 10 },  // "Up" buys >= $10
+    { ...outcomes[1] },                              // "Down" all trades
+  ],
+  events: ['trade'],
+})
+
+sub.watch(async (event) => {
+  if (event.type === 'trade') {
+    console.log(`${event.side} ${event.outcome.name} $${event.size} @ ${event.price}`)
+  }
+})
+```
+
 ## Architecture
 
 ```
-                                ┌──────────────────┐
-                                │  Gamma API       │
-                                │  (market data)   │
-                                └────────┬─────────┘
-                                         │ outcomes()
-                                         ▼
-┌─────────┐   subscribe()   ┌───────────────────────────┐
-│  Your   │ ──────────────▶ │        Watcher            │
-│  Code   │                 │                           │
-│         │ ◀────────────── │  ┌─────────┐ ┌─────────┐ │
-│         │   watch(cb)     │  │ Router  │ │Protocol │ │
-└─────────┘                 │  └────┬────┘ └────┬────┘ │
-                            │       │           │      │
-                            │       ▼           ▼      │
-                            │  ┌────────────────────┐  │
-                            │  │   WebSocket conn   │  │
-                            │  └─────────┬──────────┘  │
-                            └────────────┼─────────────┘
-                                         │
-                                         ▼
-                            ┌──────────────────────────┐
-                            │  Upstream Stream Server   │
-                            │  (order_filled, splits,   │
-                            │   merges, redemptions)    │
-                            └──────────────────────────┘
+                          ┌──────────────────┐
+                          │  Gamma API       │  (optional — for slug-based
+                          │  (market data)   │   outcome lookups only)
+                          └────────┬─────────┘
+                                   │ outcomes()
+                                   ▼
+┌─────────┐  subscribe()  ┌───────────────────────────┐
+│  Your   │ ────────────▶ │        Watcher            │
+│  Code   │               │                           │
+│         │ ◀──────────── │  ┌─────────┐ ┌─────────┐ │
+│         │   watch(cb)   │  │ Router  │ │Protocol │ │
+└─────────┘               │  └────┬────┘ └────┬────┘ │
+                          │       │           │      │
+                          │       ▼           ▼      │
+                          │  ┌────────────────────┐  │
+                          │  │   WebSocket conn   │  │
+                          │  └─────────┬──────────┘  │
+                          └────────────┼─────────────┘
+                                       │
+                                       ▼
+                          ┌──────────────────────────┐
+                          │  Stream Server (v0.3.0+) │
+                          │  15 event types with     │
+                          │  gamma + clob enrichment │
+                          └──────────────────────────┘
 ```
 
 **Flow:**
-1. `Watcher` fetches outcome metadata from the Gamma API
-2. On `subscribe()`, a lazy WebSocket connection is opened to the stream server
-3. The SDK builds server-side filter messages (by maker/taker address for trades, stakeholder for splits/merges, redeemer for redemptions)
+1. On `subscribe()`, a lazy WebSocket connection is opened to the stream server
+2. The SDK builds server-side filter messages (address filters per event type, with data-driven `ADDRESS_FIELDS` mapping)
+3. The server enriches each event with `gamma` (market metadata) and `clob` (real-time pricing) before sending
 4. Incoming events are routed through `EventRouter`, which matches them to subscriptions and applies client-side outcome/side/size filters
-5. Matched events are delivered to your `watch()` callback
+5. Matched events — with enrichment data attached — are delivered to your `watch()` callback
+6. Optionally, `watcher.outcomes(slug)` can still fetch outcome metadata from the Gamma API for slug-based filtering
 
 ## API Reference
 
@@ -100,7 +126,7 @@ Creates a new watcher instance. The WebSocket connection is **lazy** -- it is es
 ```ts
 interface WatcherOptions {
   wsUrl: string           // Upstream WebSocket URL
-  gammaUrl: string        // Polymarket Gamma API base URL
+  gammaUrl?: string       // Polymarket Gamma API base URL (optional — only for slug lookups)
   reconnect?: {           // Reconnection options
     enabled?: boolean     // Default: true
     baseDelay?: number    // Default: 1000ms
@@ -116,9 +142,11 @@ interface WatcherOptions {
 }
 ```
 
+> **Note**: `gammaUrl` is optional since v0.2.0. The stream server (v0.3.0+) enriches every event with market metadata and pricing automatically. You only need `gammaUrl` if you use `watcher.outcomes(slug)` for client-side outcome filtering.
+
 ### `watcher.outcomes(slug, cache?)`
 
-Fetch outcome metadata for a market by slug. Returns an array of `OutcomeInfo` objects containing CLOB token IDs, names, and current prices.
+Fetch outcome metadata for a market by slug. Returns an array of `OutcomeInfo` objects containing CLOB token IDs, names, and current prices. Requires `gammaUrl` in `WatcherOptions`.
 
 ```ts
 const outcomes = await watcher.outcomes('btc-updown-5m-17xx91')
@@ -162,7 +190,7 @@ const sub = watcher.subscribe('0xProxyAddress', {
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `outcomes` | `OutcomeFilter[]` | `undefined` | Filter by specific outcomes. Omit to receive all. |
-| `events` | `EventKind[]` | `['trade']` | Event types: `'trade'`, `'split'`, `'merge'`, `'redeem'` |
+| `events` | `EventKind[]` | `['trade']` | Event types to subscribe to (see [Event Types](#event-types)) |
 | `skipProxy` | `boolean` | `false` | Skip proxy address derivation. Use when the input address is already a proxy wallet. |
 
 **OutcomeFilter** extends `OutcomeInfo` with optional client-side filters:
@@ -187,16 +215,23 @@ Start receiving events. Replaces any previous callback.
 sub.watch(async (event) => {
   switch (event.type) {
     case 'trade':
-      console.log(`${event.side} ${event.outcome.name} $${event.size}`)
+      console.log(`${event.market} | ${event.side} ${event.outcome.name} $${event.size}`)
+      console.log(`  bid: ${event.clob?.best_bid} ask: ${event.clob?.best_ask}`)
       break
     case 'split':
-      console.log(`Split $${event.amount}`)
+      console.log(`Split $${event.amount} on ${event.gamma?.slug}`)
       break
     case 'merge':
       console.log(`Merge $${event.amount}`)
       break
     case 'redeem':
       console.log(`Redeem $${event.payout}`)
+      break
+    case 'resolve':
+      console.log(`Resolved: ${event.gamma?.question} payouts: [${event.payoutNumerators}]`)
+      break
+    default:
+      console.log(`${event.type} | tx ${event.tx}`)
       break
   }
 })
@@ -230,7 +265,19 @@ Close the WebSocket connection and clean up all timers and state. Emits a `disco
 
 ## Event Types
 
-### TradeEvent
+All events include optional enrichment fields from the stream server:
+
+```ts
+{
+  gamma?: GammaEnrichment | null  // Market metadata (question, outcomes, volume, etc.)
+  clob?: ClobEnrichment | null    // Real-time pricing (best_bid, best_ask, midpoint, etc.)
+  raw: object                     // Full upstream event
+}
+```
+
+### Trading Events
+
+#### TradeEvent (`'trade'`)
 
 Emitted when a watched wallet buys or sells an outcome token (`order_filled`).
 
@@ -238,37 +285,87 @@ Emitted when a watched wallet buys or sells an outcome token (`order_filled`).
 {
   type: 'trade'
   wallet: string         // Address that matched (maker or taker)
+  market: string         // Market question (from gamma enrichment)
   outcome: OutcomeInfo   // { id, name, price }
   side: 'Buy' | 'Sell'  // From the wallet's perspective
   size: number           // USDC amount
   price: number          // Price per outcome token
-  tx: string             // Transaction hash
-  block: number          // Block number
-  timestamp: number      // Date.now() when received
-  raw: object            // Full upstream OrderFilledEvent
+  tx: string
+  block: number
+  timestamp: number
 }
 ```
 
 **Side resolution**: The `side` field reflects the wallet's perspective. If the wallet is the maker on a Buy order, `side` is `'Buy'`. If the wallet is the taker on a Buy order (counterparty), `side` is `'Sell'`.
 
-### SplitEvent
+#### MatchEvent (`'match'`)
+
+Summary of a `matchOrders` call.
+
+```ts
+{
+  type: 'match'
+  wallet: string            // taker_order_maker
+  takerOrderHash: string
+  makerAssetId: string
+  takerAssetId: string
+  makerAmountFilled: string
+  takerAmountFilled: string
+  tx: string
+  block: number
+  timestamp: number
+}
+```
+
+#### CancelEvent (`'cancel'`)
+
+Maker cancelled their order on-chain. Broadcast to all subscriptions (no wallet-address filter).
+
+```ts
+{
+  type: 'cancel'
+  orderHash: string
+  tx: string
+  block: number
+  timestamp: number
+}
+```
+
+#### FeeEvent (`'fee'`)
+
+Fee collected from a trade.
+
+```ts
+{
+  type: 'fee'
+  receiver: string
+  tokenId: string
+  amount: string
+  tx: string
+  block: number
+  timestamp: number
+}
+```
+
+### Position Events
+
+#### SplitEvent (`'split'`)
 
 Wallet locked USDC to mint YES+NO outcome tokens (entering a market).
 
 ```ts
 {
   type: 'split'
-  wallet: string         // Stakeholder address
-  conditionId: string    // Market condition ID
-  amount: number         // USDC locked (raw amount / 1e6)
+  wallet: string
+  conditionId: string
+  amount: number         // USDC locked (raw / 1e6)
   tx: string
   block: number
   timestamp: number
-  raw: object            // Full upstream PositionSplitEvent
 }
 ```
 
-### MergeEvent
+#### MergeEvent (`'merge'`)
 
 Wallet burned YES+NO outcome tokens to release USDC (exiting a market).
 
@@ -277,15 +374,14 @@ Wallet burned YES+NO outcome tokens to release USDC (exiting a market).
   type: 'merge'
   wallet: string
   conditionId: string
-  amount: number         // USDC released (raw amount / 1e6)
+  amount: number         // USDC released (raw / 1e6)
   tx: string
   block: number
   timestamp: number
-  raw: object            // Full upstream PositionsMergeEvent
 }
 ```
 
-### RedeemEvent
+#### RedeemEvent (`'redeem'`)
 
 Wallet claimed payout after market resolution.
 
@@ -294,12 +390,125 @@ Wallet claimed payout after market resolution.
   type: 'redeem'
   wallet: string
   conditionId: string
-  payout: number         // USDC claimed (raw amount / 1e6)
+  payout: number         // USDC claimed (raw / 1e6)
   tx: string
   block: number
   timestamp: number
-  raw: object            // Full upstream PayoutRedemptionEvent
 }
+```
+
+#### ConvertEvent (`'convert'`)
+
+NO tokens converted to YES tokens in multi-outcome (neg-risk) markets.
+
+```ts
+{
+  type: 'convert'
+  wallet: string
+  marketId: string
+  indexSet: string
+  amount: number         // USDC value (raw / 1e6)
+  tx: string
+  block: number
+  timestamp: number
+}
+```
+
+### Resolution Events
+
+#### PrepareEvent (`'prepare'`)
+
+New condition created. Broadcast to all subscriptions.
+
+```ts
+{
+  type: 'prepare'
+  conditionId: string
+  oracle: string
+  questionId: string
+  outcomeSlotCount: string
+  tx: string
+  block: number
+  timestamp: number
+}
+```
+
+#### ResolveEvent (`'resolve'`)
+
+Condition resolved with payout numerators. Broadcast to all subscriptions.
+
+```ts
+{
+  type: 'resolve'
+  conditionId: string
+  oracle: string
+  questionId: string
+  outcomeSlotCount: string
+  payoutNumerators: string[]
+  tx: string
+  block: number
+  timestamp: number
+}
+```
+
+### Transfer Events
+
+#### TransferEvent (`'transfer'`)
+
+Single ERC-1155 token transfer. Matched if `from` or `to` is a watched wallet.
+
+```ts
+{
+  type: 'transfer'
+  operator: string
+  from: string
+  to: string
+  tokenId: string
+  value: string
+  tx: string
+  block: number
+  timestamp: number
+}
+```
+
+#### TransferBatchEvent (`'transfer_batch'`)
+
+Batch ERC-1155 token transfer. Matched if `from` or `to` is a watched wallet.
+
+```ts
+{
+  type: 'transfer_batch'
+  operator: string
+  from: string
+  to: string
+  ids: string[]
+  values: string[]
+  tx: string
+  block: number
+  timestamp: number
+}
+```
+
+### Admin Events
+
+These are broadcast to all subscriptions (no wallet-address filter).
+
+#### TokenRegisteredEvent (`'token_registered'`)
+
+```ts
+{ type: 'token_registered', token0: string, token1: string, conditionId: string, tx, block, timestamp }
+```
+
+#### TradingPausedEvent (`'trading_paused'`)
+
+```ts
+{ type: 'trading_paused', pauser: string, tx, block, timestamp }
+```
+
+#### TradingUnpausedEvent (`'trading_unpaused'`)
+
+```ts
+{ type: 'trading_unpaused', unpauser: string, tx, block, timestamp }
 ```
 
 ## Lifecycle Events
@@ -381,14 +590,52 @@ watcher.on('error', (err) => {
 })
 ```
 
+## Enrichment Types
+
+Every event carries optional `gamma` and `clob` fields populated by the stream server's enrichment system:
+
+### GammaEnrichment
+
+Market metadata from the Gamma API (30+ fields). Key fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `question` | `string \| null` | Market question text |
+| `slug` | `string \| null` | URL slug |
+| `outcomes` | `string[]` | Outcome labels (e.g. `["Yes", "No"]`) |
+| `outcome_prices` | `string[]` | Current prices |
+| `clob_token_ids` | `string[]` | CLOB token IDs |
+| `condition_id` | `string \| null` | On-chain condition ID |
+| `volume_24hr` | `number \| null` | 24-hour volume |
+| `liquidity` | `number \| null` | Current liquidity |
+| `active` / `closed` | `boolean \| null` | Market status |
+| `event_title` | `string \| null` | Parent event title |
+
+See `GammaEnrichment` type for the full list.
+
+### ClobEnrichment
+
+Real-time order book pricing:
+
+| Field | Type | Description |
+|---|---|---|
+| `token_id` | `string` | CLOB token ID |
+| `best_bid` | `string \| null` | Best bid price |
+| `best_ask` | `string \| null` | Best ask price |
+| `midpoint` | `string \| null` | Midpoint price |
+| `last_trade_price` | `string \| null` | Last trade price |
+| `tick_size` | `string \| null` | Minimum price increment |
+| `neg_risk` | `boolean \| null` | Negative risk flag |
+
 ## Exports
 
 ```ts
 // Classes
 export { Watcher, Subscription }
 
-// Enums
+// Enums & Constants
 export { Side }              // Side.Buy | Side.Sell
+export { EVENT_KIND_TO_WIRE } // EventKind → server wire type mapping
 
 // Utilities
 export { deriveProxyAddress, normalizeAddress }
@@ -398,20 +645,19 @@ export { WatcherError, ConnectionError, ReconnectError, ProtocolError, ServerErr
 
 // Types
 export type {
-  OutcomeInfo,
-  OutcomeFilter,
-  SubscribeOptions,
-  WatcherEvent,        // TradeEvent | SplitEvent | MergeEvent | RedeemEvent
-  TradeEvent,
-  SplitEvent,
-  MergeEvent,
-  RedeemEvent,
-  WatcherOptions,
-  EventKind,           // 'trade' | 'split' | 'merge' | 'redeem'
-  ReconnectOptions,
-  KeepaliveOptions,
-  LifecycleEvent,      // 'connected' | 'disconnected' | 'reconnecting' | 'error' | 'debug'
-  LifecycleEventMap,
+  // Enrichment
+  GammaEnrichment, ClobEnrichment, GammaSeries, GammaTag,
+  // Events
+  WatcherEvent,
+  TradeEvent, MatchEvent, CancelEvent, FeeEvent,
+  SplitEvent, MergeEvent, RedeemEvent, ConvertEvent,
+  PrepareEvent, ResolveEvent,
+  TransferEvent, TransferBatchEvent,
+  TokenRegisteredEvent, TradingPausedEvent, TradingUnpausedEvent,
+  // Configuration
+  OutcomeInfo, OutcomeFilter, SubscribeOptions,
+  WatcherOptions, EventKind, ReconnectOptions, KeepaliveOptions,
+  LifecycleEvent, LifecycleEventMap,
 }
 ```
 
@@ -422,24 +668,26 @@ export type {
 ```bash
 cd sdk
 
-# Basic usage
-npm run example:watch -- 0xWalletAddress market-slug
+# Watch all markets for a wallet (no slug needed)
+npm run example:watch -- 0xWalletAddress
 
-# With debug logging (shows WS messages, subscription payloads, raw events)
-DEBUG=1 npm run example:watch -- 0xWalletAddress market-slug
+# With debug logging
+DEBUG=1 npm run example:watch -- 0xWalletAddress
+
+# Multiple wallets on a specific market (slug-based filtering)
+npm run example:multiple -- 0xWallet1 0xWallet2 market-slug
 ```
 
 ### Copy-trade pattern
 
 ```ts
-const watcher = new Watcher({ wsUrl, gammaUrl })
-const outcomes = await watcher.outcomes('some-market')
+const watcher = new Watcher({ wsUrl })
 
 watcher.subscribe('0xWhale', {
-  outcomes: outcomes.map(o => ({ ...o })),
   events: ['trade'],
 }).watch(async (event) => {
   if (event.type === 'trade') {
+    console.log(`${event.market} | ${event.side} ${event.outcome.name} $${event.size}`)
     await executeTrade(event.outcome.id, event.side, event.size)
   }
 })
@@ -448,19 +696,17 @@ watcher.subscribe('0xWhale', {
 ### Watch proxy wallet directly
 
 ```ts
-// When you already have the proxy address (e.g. from data-api)
-const watcher = new Watcher({ wsUrl, gammaUrl })
-const outcomes = await watcher.outcomes('btc-updown-5m-1774601100')
+const watcher = new Watcher({ wsUrl })
 
-const sub = watcher.subscribe('0x99c4fb1f78881601075bc25b13c9af76bc5918e7', {
-  outcomes: outcomes.map(o => ({ ...o })),
+const sub = watcher.subscribe('0xProxyWallet', {
   events: ['trade', 'split', 'merge', 'redeem'],
   skipProxy: true,
 })
 
 sub.watch((event) => {
   if (event.type === 'trade') {
-    console.log(`${event.side} ${event.outcome.name} $${event.size.toFixed(2)} @ ${event.price.toFixed(4)}`)
+    console.log(`${event.market} | ${event.side} ${event.outcome.name} $${event.size.toFixed(2)}`)
+    console.log(`  bid: ${event.clob?.best_bid} ask: ${event.clob?.best_ask}`)
   }
 })
 ```
@@ -468,32 +714,40 @@ sub.watch((event) => {
 ### Multi-wallet monitoring
 
 ```ts
-const watcher = new Watcher({ wsUrl, gammaUrl })
-const outcomes = await watcher.outcomes('btc-updown-5m-1774601100')
+const watcher = new Watcher({ wsUrl })
 
-// Watch multiple wallets with a single subscription
 const sub = watcher.subscribe(
   ['0xWhale1', '0xWhale2', '0xWhale3'],
-  {
-    outcomes: outcomes.map(o => ({ ...o })),
-    events: ['trade'],
-  }
+  { events: ['trade'] },
 )
 
 sub.watch((event) => {
   if (event.type === 'trade') {
-    console.log(`[${event.wallet}] ${event.side} ${event.outcome.name} $${event.size}`)
+    console.log(`[${event.wallet}] ${event.market} | ${event.side} ${event.outcome.name} $${event.size}`)
   }
 })
 ```
 
-### Whale alert (size filter)
+### Market resolution alerts
+
+```ts
+const watcher = new Watcher({ wsUrl })
+
+watcher.subscribe('0xAddr', {
+  events: ['trade', 'resolve'],
+}).watch((event) => {
+  if (event.type === 'resolve') {
+    console.log(`RESOLVED: ${event.gamma?.question} → payouts [${event.payoutNumerators}]`)
+  }
+})
+```
+
+### Whale alert (size filter with slug)
 
 ```ts
 const watcher = new Watcher({ wsUrl, gammaUrl })
 const outcomes = await watcher.outcomes('will-trump-win-2024')
 
-// Only alert on trades >= $1000
 const sub = watcher.subscribe('0xWhale', {
   outcomes: outcomes.map(o => ({ ...o, size: 1000 })),
   events: ['trade'],
@@ -509,7 +763,7 @@ sub.watch((event) => {
 ### Graceful shutdown
 
 ```ts
-const watcher = new Watcher({ wsUrl, gammaUrl })
+const watcher = new Watcher({ wsUrl })
 const sub = watcher.subscribe('0xAddr', { events: ['trade'] })
 
 sub.watch((event) => { /* ... */ })
@@ -538,8 +792,9 @@ npm run dev
 # Type check
 npm run lint
 
-# Run example
-DEBUG=1 npm run example:watch -- 0xAddress market-slug
+# Run examples
+DEBUG=1 npm run example:watch -- 0xAddress
+npm run example:multiple -- 0xAddr1 0xAddr2 market-slug
 ```
 
 ## Wire Protocol
@@ -563,18 +818,41 @@ The SDK communicates with the upstream stream server over WebSocket using JSON m
         { "field": "taker", "op": "eq", "value": "0xAddress" },
         { "field": "usdc_amount", "op": "gte", "value": 10 }
       ]
-    }
+    },
+    { "event_type": "condition_resolution" }
   ]
 }
 ```
 
+Broadcast events (cancel, prepare, resolve, admin) are subscribed without address filters.
+
 **Server responses:**
 - `{"type": "subscribed", "event_types": ["order_filled", ...]}` -- subscription acknowledged
-- `{"type": "event", "data": { ... }}` -- upstream event matching filters
+- `{"type": "event", "data": { ..., "gamma": {...}, "clob": {...} }}` -- enriched event
 - `{"type": "pong"}` -- keepalive response
 - `{"type": "error", "message": "..."}` -- server error
 
 **Supported filter operators:** `eq`, `ne`, `gt`, `gte`, `lt`, `lte`
+
+**Event type mapping** (SDK → wire):
+
+| SDK EventKind | Wire Type |
+|---|---|
+| `trade` | `order_filled` |
+| `match` | `orders_matched` |
+| `cancel` | `order_cancelled` |
+| `fee` | `fee_charged` |
+| `split` | `position_split` |
+| `merge` | `positions_merge` |
+| `redeem` | `payout_redemption` |
+| `convert` | `positions_converted` |
+| `prepare` | `condition_preparation` |
+| `resolve` | `condition_resolution` |
+| `transfer` | `transfer_single` |
+| `transfer_batch` | `transfer_batch` |
+| `token_registered` | `token_registered` |
+| `trading_paused` | `trading_paused` |
+| `trading_unpaused` | `trading_unpaused` |
 
 ## License
 

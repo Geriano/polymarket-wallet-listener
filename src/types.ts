@@ -12,7 +12,22 @@ export enum Side {
   Sell = 'Sell',
 }
 
-export type EventKind = 'trade' | 'split' | 'merge' | 'redeem';
+export type EventKind =
+  | 'trade'
+  | 'split'
+  | 'merge'
+  | 'redeem'
+  | 'match'
+  | 'cancel'
+  | 'fee'
+  | 'convert'
+  | 'prepare'
+  | 'resolve'
+  | 'transfer'
+  | 'transfer_batch'
+  | 'token_registered'
+  | 'trading_paused'
+  | 'trading_unpaused';
 
 export interface OutcomeInfo {
   id: string;
@@ -31,11 +46,79 @@ export interface SubscribeOptions {
   skipProxy?: boolean;
 }
 
+// ─── Enrichment Types ───────────────────────────────────────────────────────
+
+export interface GammaSeries {
+  id: string | null;
+  title: string | null;
+  slug: string | null;
+}
+
+export interface GammaTag {
+  label: string | null;
+  slug: string | null;
+}
+
+export interface GammaEnrichment {
+  market_id: string | null;
+  condition_id: string | null;
+  question: string | null;
+  description: string | null;
+  resolution_source: string | null;
+  slug: string | null;
+  category: string | null;
+  end_date: string | null;
+  image: string | null;
+  icon: string | null;
+  outcomes: string[];
+  outcome_prices: string[];
+  clob_token_ids: string[];
+  active: boolean | null;
+  closed: boolean | null;
+  enable_neg_risk: boolean | null;
+  market_type: string | null;
+  volume: number | null;
+  volume_24hr: number | null;
+  volume_1wk: number | null;
+  volume_1mo: number | null;
+  liquidity: number | null;
+  open_interest: number | null;
+  best_bid: number | null;
+  best_ask: number | null;
+  spread: number | null;
+  last_trade_price: number | null;
+  one_day_price_change: number | null;
+  one_hour_price_change: number | null;
+  one_week_price_change: number | null;
+  rewards_min_size: number | null;
+  rewards_max_spread: number | null;
+  comment_count: number | null;
+  event_id: string | null;
+  event_title: string | null;
+  event_slug: string | null;
+  series: GammaSeries[];
+  tags: GammaTag[];
+}
+
+export interface ClobEnrichment {
+  token_id: string;
+  best_bid: string | null;
+  best_ask: string | null;
+  midpoint: string | null;
+  last_trade_price: string | null;
+  tick_size: string | null;
+  neg_risk: boolean | null;
+  timestamp: string | null;
+}
+
 // ─── Watcher Events (discriminated union) ────────────────────────────────────
+
+// ── Trading Events ──
 
 export interface TradeEvent {
   type: 'trade';
   wallet: string;
+  market: string;
   outcome: OutcomeInfo;
   side: 'Buy' | 'Sell';
   size: number;
@@ -43,8 +126,52 @@ export interface TradeEvent {
   tx: string;
   block: number;
   timestamp: number;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
   raw: object;
 }
+
+export interface MatchEvent {
+  type: 'match';
+  wallet: string;
+  takerOrderHash: string;
+  makerAssetId: string;
+  takerAssetId: string;
+  makerAmountFilled: string;
+  takerAmountFilled: string;
+  tx: string;
+  block: number;
+  timestamp: number;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
+  raw: object;
+}
+
+export interface CancelEvent {
+  type: 'cancel';
+  orderHash: string;
+  tx: string;
+  block: number;
+  timestamp: number;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
+  raw: object;
+}
+
+export interface FeeEvent {
+  type: 'fee';
+  receiver: string;
+  tokenId: string;
+  amount: string;
+  tx: string;
+  block: number;
+  timestamp: number;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
+  raw: object;
+}
+
+// ── Position Events ──
 
 export interface SplitEvent {
   type: 'split';
@@ -54,6 +181,8 @@ export interface SplitEvent {
   tx: string;
   block: number;
   timestamp: number;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
   raw: object;
 }
 
@@ -65,6 +194,8 @@ export interface MergeEvent {
   tx: string;
   block: number;
   timestamp: number;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
   raw: object;
 }
 
@@ -76,10 +207,141 @@ export interface RedeemEvent {
   tx: string;
   block: number;
   timestamp: number;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
   raw: object;
 }
 
-export type WatcherEvent = TradeEvent | SplitEvent | MergeEvent | RedeemEvent;
+export interface ConvertEvent {
+  type: 'convert';
+  wallet: string;
+  marketId: string;
+  indexSet: string;
+  amount: number;
+  tx: string;
+  block: number;
+  timestamp: number;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
+  raw: object;
+}
+
+// ── Resolution Events ──
+
+export interface PrepareEvent {
+  type: 'prepare';
+  conditionId: string;
+  oracle: string;
+  questionId: string;
+  outcomeSlotCount: string;
+  tx: string;
+  block: number;
+  timestamp: number;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
+  raw: object;
+}
+
+export interface ResolveEvent {
+  type: 'resolve';
+  conditionId: string;
+  oracle: string;
+  questionId: string;
+  outcomeSlotCount: string;
+  payoutNumerators: string[];
+  tx: string;
+  block: number;
+  timestamp: number;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
+  raw: object;
+}
+
+// ── Transfer Events ──
+
+export interface TransferEvent {
+  type: 'transfer';
+  operator: string;
+  from: string;
+  to: string;
+  tokenId: string;
+  value: string;
+  tx: string;
+  block: number;
+  timestamp: number;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
+  raw: object;
+}
+
+export interface TransferBatchEvent {
+  type: 'transfer_batch';
+  operator: string;
+  from: string;
+  to: string;
+  ids: string[];
+  values: string[];
+  tx: string;
+  block: number;
+  timestamp: number;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
+  raw: object;
+}
+
+// ── Admin Events ──
+
+export interface TokenRegisteredEvent {
+  type: 'token_registered';
+  token0: string;
+  token1: string;
+  conditionId: string;
+  tx: string;
+  block: number;
+  timestamp: number;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
+  raw: object;
+}
+
+export interface TradingPausedEvent {
+  type: 'trading_paused';
+  pauser: string;
+  tx: string;
+  block: number;
+  timestamp: number;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
+  raw: object;
+}
+
+export interface TradingUnpausedEvent {
+  type: 'trading_unpaused';
+  unpauser: string;
+  tx: string;
+  block: number;
+  timestamp: number;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
+  raw: object;
+}
+
+export type WatcherEvent =
+  | TradeEvent
+  | MatchEvent
+  | CancelEvent
+  | FeeEvent
+  | SplitEvent
+  | MergeEvent
+  | RedeemEvent
+  | ConvertEvent
+  | PrepareEvent
+  | ResolveEvent
+  | TransferEvent
+  | TransferBatchEvent
+  | TokenRegisteredEvent
+  | TradingPausedEvent
+  | TradingUnpausedEvent;
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -98,7 +360,7 @@ export interface KeepaliveOptions {
 
 export interface WatcherOptions {
   wsUrl: string;
-  gammaUrl: string;
+  gammaUrl?: string;
   reconnect?: Partial<ReconnectOptions>;
   keepalive?: Partial<KeepaliveOptions>;
   WebSocket?: unknown;
@@ -136,6 +398,57 @@ export interface OrderFilledEvent {
   exchange: Address;
 }
 
+export interface OrdersMatchedEvent {
+  readonly type: 'orders_matched';
+  taker_order_hash: B256;
+  taker_order_maker: Address;
+  maker_asset_id: U256;
+  taker_asset_id: U256;
+  maker_amount_filled: U256;
+  taker_amount_filled: U256;
+  block_number: number;
+  tx_hash: B256;
+}
+
+export interface OrderCancelledEvent {
+  readonly type: 'order_cancelled';
+  order_hash: B256;
+  block_number: number;
+  tx_hash: B256;
+}
+
+export interface FeeChargedEvent {
+  readonly type: 'fee_charged';
+  receiver: Address;
+  token_id: U256;
+  amount: U256;
+  block_number: number;
+  tx_hash: B256;
+}
+
+export interface TokenRegisteredUpstreamEvent {
+  readonly type: 'token_registered';
+  token0: U256;
+  token1: U256;
+  condition_id: B256;
+  block_number: number;
+  tx_hash: B256;
+}
+
+export interface TradingPausedUpstreamEvent {
+  readonly type: 'trading_paused';
+  pauser: Address;
+  block_number: number;
+  tx_hash: B256;
+}
+
+export interface TradingUnpausedUpstreamEvent {
+  readonly type: 'trading_unpaused';
+  unpauser: Address;
+  block_number: number;
+  tx_hash: B256;
+}
+
 export interface PositionSplitEvent {
   readonly type: 'position_split';
   stakeholder: Address;
@@ -163,11 +476,75 @@ export interface PayoutRedemptionEvent {
   tx_hash: B256;
 }
 
+export interface PositionsConvertedEvent {
+  readonly type: 'positions_converted';
+  stakeholder: Address;
+  market_id: B256;
+  index_set: U256;
+  amount: U256;
+  block_number: number;
+  tx_hash: B256;
+}
+
+export interface ConditionPreparationEvent {
+  readonly type: 'condition_preparation';
+  condition_id: B256;
+  oracle: Address;
+  question_id: B256;
+  outcome_slot_count: U256;
+  block_number: number;
+  tx_hash: B256;
+}
+
+export interface ConditionResolutionEvent {
+  readonly type: 'condition_resolution';
+  condition_id: B256;
+  oracle: Address;
+  question_id: B256;
+  outcome_slot_count: U256;
+  payout_numerators: U256[];
+  block_number: number;
+  tx_hash: B256;
+}
+
+export interface TransferSingleUpstreamEvent {
+  readonly type: 'transfer_single';
+  operator: Address;
+  from: Address;
+  to: Address;
+  id: U256;
+  value: U256;
+  block_number: number;
+  tx_hash: B256;
+}
+
+export interface TransferBatchUpstreamEvent {
+  readonly type: 'transfer_batch';
+  operator: Address;
+  from: Address;
+  to: Address;
+  ids: U256[];
+  values: U256[];
+  block_number: number;
+  tx_hash: B256;
+}
+
 export type UpstreamEvent =
   | OrderFilledEvent
+  | OrdersMatchedEvent
+  | OrderCancelledEvent
+  | FeeChargedEvent
+  | TokenRegisteredUpstreamEvent
+  | TradingPausedUpstreamEvent
+  | TradingUnpausedUpstreamEvent
   | PositionSplitEvent
   | PositionsMergeEvent
-  | PayoutRedemptionEvent;
+  | PayoutRedemptionEvent
+  | PositionsConvertedEvent
+  | ConditionPreparationEvent
+  | ConditionResolutionEvent
+  | TransferSingleUpstreamEvent
+  | TransferBatchUpstreamEvent;
 
 // ─── Wire Protocol ───────────────────────────────────────────────────────────
 
@@ -214,6 +591,26 @@ export type ServerMessage =
   | { type: 'unsubscribed' }
   | ServerPongMessage
   | ServerErrorMessage;
+
+// ─── Event Kind ↔ Wire Type Mapping ─────────────────────────────────────────
+
+export const EVENT_KIND_TO_WIRE: Record<EventKind, string> = {
+  trade: 'order_filled',
+  match: 'orders_matched',
+  cancel: 'order_cancelled',
+  fee: 'fee_charged',
+  split: 'position_split',
+  merge: 'positions_merge',
+  redeem: 'payout_redemption',
+  convert: 'positions_converted',
+  prepare: 'condition_preparation',
+  resolve: 'condition_resolution',
+  transfer: 'transfer_single',
+  transfer_batch: 'transfer_batch',
+  token_registered: 'token_registered',
+  trading_paused: 'trading_paused',
+  trading_unpaused: 'trading_unpaused',
+};
 
 // ─── Internal Types ──────────────────────────────────────────────────────────
 

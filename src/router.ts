@@ -1,16 +1,26 @@
 import { normalizeAddress } from './wallet.js';
 import type {
+  ClobEnrichment,
+  ConditionPreparationEvent,
+  ConditionResolutionEvent,
+  EventKind,
+  FeeChargedEvent,
+  GammaEnrichment,
   InternalSubscription,
+  OrderCancelledEvent,
   OrderFilledEvent,
+  OrdersMatchedEvent,
   OutcomeFilter,
   OutcomeInfo,
   PayoutRedemptionEvent,
+  PositionsConvertedEvent,
   PositionSplitEvent,
   PositionsMergeEvent,
-  TradeEvent,
-  SplitEvent,
-  MergeEvent,
-  RedeemEvent,
+  TokenRegisteredUpstreamEvent,
+  TradingPausedUpstreamEvent,
+  TradingUnpausedUpstreamEvent,
+  TransferBatchUpstreamEvent,
+  TransferSingleUpstreamEvent,
   WatcherEvent,
 } from './types.js';
 
@@ -63,28 +73,110 @@ export class EventRouter {
     const eventType = data.type as string;
     if (!eventType) return;
 
+    // Extract gamma outcomes from enrichment on any event that carries them
+    this.extractGammaOutcomes(data);
+
     switch (eventType) {
+      // ── Trading ──
       case 'order_filled':
         if (!data.maker || !data.taker || !data.exchange) break;
-        this.routeOrderFilled(data as unknown as OrderFilledEvent);
+        this.routeOrderFilled(data as unknown as OrderFilledEvent, data);
         break;
+      case 'orders_matched':
+        if (!data.taker_order_maker) break;
+        this.routeOrdersMatched(data as unknown as OrdersMatchedEvent, data);
+        break;
+      case 'order_cancelled':
+        this.routeOrderCancelled(data as unknown as OrderCancelledEvent, data);
+        break;
+      case 'fee_charged':
+        if (!data.receiver) break;
+        this.routeFeeCharged(data as unknown as FeeChargedEvent, data);
+        break;
+
+      // ── Position ──
       case 'position_split':
         if (!data.stakeholder) break;
-        this.routePositionSplit(data as unknown as PositionSplitEvent);
+        this.routePositionSplit(data as unknown as PositionSplitEvent, data);
         break;
       case 'positions_merge':
         if (!data.stakeholder) break;
-        this.routePositionsMerge(data as unknown as PositionsMergeEvent);
+        this.routePositionsMerge(data as unknown as PositionsMergeEvent, data);
         break;
       case 'payout_redemption':
         if (!data.redeemer) break;
-        this.routePayoutRedemption(data as unknown as PayoutRedemptionEvent);
+        this.routePayoutRedemption(data as unknown as PayoutRedemptionEvent, data);
+        break;
+      case 'positions_converted':
+        if (!data.stakeholder) break;
+        this.routePositionsConverted(data as unknown as PositionsConvertedEvent, data);
+        break;
+
+      // ── Resolution ──
+      case 'condition_preparation':
+        this.routeBroadcast('prepare', data as unknown as ConditionPreparationEvent, data);
+        break;
+      case 'condition_resolution':
+        this.routeBroadcast('resolve', data as unknown as ConditionResolutionEvent, data);
+        break;
+
+      // ── Transfer ──
+      case 'transfer_single':
+        if (!data.from && !data.to) break;
+        this.routeTransferSingle(data as unknown as TransferSingleUpstreamEvent, data);
+        break;
+      case 'transfer_batch':
+        if (!data.from && !data.to) break;
+        this.routeTransferBatch(data as unknown as TransferBatchUpstreamEvent, data);
+        break;
+
+      // ── Admin ──
+      case 'token_registered':
+        this.routeBroadcast('token_registered', data as unknown as TokenRegisteredUpstreamEvent, data);
+        break;
+      case 'trading_paused':
+        this.routeBroadcast('trading_paused', data as unknown as TradingPausedUpstreamEvent, data);
+        break;
+      case 'trading_unpaused':
+        this.routeBroadcast('trading_unpaused', data as unknown as TradingUnpausedUpstreamEvent, data);
         break;
     }
   }
 
-  private routeOrderFilled(event: OrderFilledEvent): void {
-    // Exclude internal protocol fills where the exchange contract is maker or taker
+  // ─── Enrichment Helpers ───────────────────────────────────────────────────
+
+  private extractEnrichment(data: Record<string, unknown>): {
+    gamma: GammaEnrichment | null;
+    clob: ClobEnrichment | null;
+  } {
+    const gamma = (data.gamma as GammaEnrichment) ?? null;
+    const clob = (data.clob as ClobEnrichment) ?? null;
+    return { gamma, clob };
+  }
+
+  private extractGammaOutcomes(data: Record<string, unknown>): void {
+    const gamma = data.gamma as Record<string, unknown> | undefined;
+    if (!gamma) return;
+
+    const tokenIds = gamma.clob_token_ids as string[] | undefined;
+    const names = gamma.outcomes as string[] | undefined;
+    const prices = gamma.outcome_prices as string[] | undefined;
+    if (!tokenIds || !names) return;
+
+    for (let i = 0; i < tokenIds.length; i++) {
+      const id = tokenIds[i];
+      if (this.outcomeRegistry.has(id)) continue;
+      this.outcomeRegistry.set(id, {
+        id,
+        name: names[i] ?? 'unknown',
+        price: prices?.[i] ?? '0',
+      });
+    }
+  }
+
+  // ─── Trading Event Routes ─────────────────────────────────────────────────
+
+  private routeOrderFilled(event: OrderFilledEvent, data: Record<string, unknown>): void {
     const exchangeNorm = normalizeAddress(event.exchange);
     const makerNorm = normalizeAddress(event.maker);
     const takerNorm = normalizeAddress(event.taker);
@@ -93,13 +185,9 @@ export class EventRouter {
       return;
     }
 
-    // Determine outcome token ID
-    // Buy: makerAssetId == 0, outcome token is taker_asset_id
-    // Sell: makerAssetId != 0, outcome token is maker_asset_id
     const outcomeTokenId =
       event.side === 'Buy' ? event.taker_asset_id : event.maker_asset_id;
 
-    // Collect unique subscription IDs that match maker or taker
     const matched = new Map<string, { wallet: string; isMaker: boolean }>();
 
     const makerSubs = this.addressIndex.get(makerNorm);
@@ -120,40 +208,39 @@ export class EventRouter {
       }
     }
 
+    const { gamma, clob } = this.extractEnrichment(data);
+
     for (const [subId, { wallet, isMaker }] of matched) {
       const sub = this.subs.get(subId);
       if (!sub?.callback) continue;
       if (!sub.options.events.includes('trade')) continue;
 
-      // Wallet's side perspective
       const walletSide: 'Buy' | 'Sell' = isMaker
         ? event.side
         : event.side === 'Buy'
           ? 'Sell'
           : 'Buy';
 
-      // Client-side outcome filtering
       const outcomeFilter = this.findOutcomeFilter(sub, outcomeTokenId);
       if (sub.options.outcomes && sub.options.outcomes.length > 0) {
         if (!outcomeFilter) continue;
       }
 
-      // Client-side side filtering
       if (outcomeFilter?.side && outcomeFilter.side !== walletSide) continue;
-
-      // Client-side size filtering
       if (outcomeFilter?.size != null && event.usdc_amount < outcomeFilter.size) continue;
 
-      // Enrich outcome info — prefer registry, fall back to the matched filter
       const outcome: OutcomeInfo = this.outcomeRegistry.get(outcomeTokenId) ?? {
         id: outcomeFilter?.id ?? outcomeTokenId,
         name: outcomeFilter?.name ?? 'unknown',
         price: outcomeFilter?.price ?? '0',
       };
 
-      const tradeEvent: TradeEvent = {
+      const market = gamma?.question ?? '';
+
+      this.invoke(sub, {
         type: 'trade',
         wallet,
+        market,
         outcome,
         side: walletSide,
         size: event.usdc_amount,
@@ -161,15 +248,67 @@ export class EventRouter {
         tx: event.tx_hash,
         block: event.block_number,
         timestamp: Date.now(),
+        gamma,
+        clob,
         raw: event,
-      };
-
-      this.invoke(sub, tradeEvent);
+      });
     }
   }
 
-  private routePositionSplit(event: PositionSplitEvent): void {
-    this.routeStakeholderEvent(event.stakeholder, 'split', {
+  private routeOrdersMatched(event: OrdersMatchedEvent, data: Record<string, unknown>): void {
+    const { gamma, clob } = this.extractEnrichment(data);
+    this.routeAddressEvent(event.taker_order_maker, 'match', {
+      type: 'match',
+      wallet: event.taker_order_maker,
+      takerOrderHash: event.taker_order_hash,
+      makerAssetId: event.maker_asset_id,
+      takerAssetId: event.taker_asset_id,
+      makerAmountFilled: event.maker_amount_filled,
+      takerAmountFilled: event.taker_amount_filled,
+      tx: event.tx_hash,
+      block: event.block_number,
+      timestamp: Date.now(),
+      gamma,
+      clob,
+      raw: event,
+    });
+  }
+
+  private routeOrderCancelled(event: OrderCancelledEvent, data: Record<string, unknown>): void {
+    const { gamma, clob } = this.extractEnrichment(data);
+    this.routeBroadcastEvent('cancel', {
+      type: 'cancel',
+      orderHash: event.order_hash,
+      tx: event.tx_hash,
+      block: event.block_number,
+      timestamp: Date.now(),
+      gamma,
+      clob,
+      raw: event,
+    });
+  }
+
+  private routeFeeCharged(event: FeeChargedEvent, data: Record<string, unknown>): void {
+    const { gamma, clob } = this.extractEnrichment(data);
+    this.routeAddressEvent(event.receiver, 'fee', {
+      type: 'fee',
+      receiver: event.receiver,
+      tokenId: event.token_id,
+      amount: event.amount,
+      tx: event.tx_hash,
+      block: event.block_number,
+      timestamp: Date.now(),
+      gamma,
+      clob,
+      raw: event,
+    });
+  }
+
+  // ─── Position Event Routes ────────────────────────────────────────────────
+
+  private routePositionSplit(event: PositionSplitEvent, data: Record<string, unknown>): void {
+    const { gamma, clob } = this.extractEnrichment(data);
+    this.routeAddressEvent(event.stakeholder, 'split', {
       type: 'split',
       wallet: event.stakeholder,
       conditionId: event.condition_id,
@@ -177,12 +316,15 @@ export class EventRouter {
       tx: event.tx_hash,
       block: event.block_number,
       timestamp: Date.now(),
+      gamma,
+      clob,
       raw: event,
-    } satisfies SplitEvent);
+    });
   }
 
-  private routePositionsMerge(event: PositionsMergeEvent): void {
-    this.routeStakeholderEvent(event.stakeholder, 'merge', {
+  private routePositionsMerge(event: PositionsMergeEvent, data: Record<string, unknown>): void {
+    const { gamma, clob } = this.extractEnrichment(data);
+    this.routeAddressEvent(event.stakeholder, 'merge', {
       type: 'merge',
       wallet: event.stakeholder,
       conditionId: event.condition_id,
@@ -190,12 +332,15 @@ export class EventRouter {
       tx: event.tx_hash,
       block: event.block_number,
       timestamp: Date.now(),
+      gamma,
+      clob,
       raw: event,
-    } satisfies MergeEvent);
+    });
   }
 
-  private routePayoutRedemption(event: PayoutRedemptionEvent): void {
-    this.routeStakeholderEvent(event.redeemer, 'redeem', {
+  private routePayoutRedemption(event: PayoutRedemptionEvent, data: Record<string, unknown>): void {
+    const { gamma, clob } = this.extractEnrichment(data);
+    this.routeAddressEvent(event.redeemer, 'redeem', {
       type: 'redeem',
       wallet: event.redeemer,
       conditionId: event.condition_id,
@@ -203,15 +348,169 @@ export class EventRouter {
       tx: event.tx_hash,
       block: event.block_number,
       timestamp: Date.now(),
+      gamma,
+      clob,
       raw: event,
-    } satisfies RedeemEvent);
+    });
   }
 
-  private routeStakeholderEvent(
-    address: string,
-    kind: 'split' | 'merge' | 'redeem',
-    event: WatcherEvent,
+  private routePositionsConverted(event: PositionsConvertedEvent, data: Record<string, unknown>): void {
+    const { gamma, clob } = this.extractEnrichment(data);
+    this.routeAddressEvent(event.stakeholder, 'convert', {
+      type: 'convert',
+      wallet: event.stakeholder,
+      marketId: event.market_id,
+      indexSet: event.index_set,
+      amount: parseFloat(event.amount) / 1e6,
+      tx: event.tx_hash,
+      block: event.block_number,
+      timestamp: Date.now(),
+      gamma,
+      clob,
+      raw: event,
+    });
+  }
+
+  // ─── Transfer Event Routes ────────────────────────────────────────────────
+
+  private routeTransferSingle(event: TransferSingleUpstreamEvent, data: Record<string, unknown>): void {
+    const { gamma, clob } = this.extractEnrichment(data);
+    const watcherEvent: WatcherEvent = {
+      type: 'transfer',
+      operator: event.operator,
+      from: event.from,
+      to: event.to,
+      tokenId: event.id,
+      value: event.value,
+      tx: event.tx_hash,
+      block: event.block_number,
+      timestamp: Date.now(),
+      gamma,
+      clob,
+      raw: event,
+    };
+    this.routeDualAddressEvent(event.from, event.to, 'transfer', watcherEvent);
+  }
+
+  private routeTransferBatch(event: TransferBatchUpstreamEvent, data: Record<string, unknown>): void {
+    const { gamma, clob } = this.extractEnrichment(data);
+    const watcherEvent: WatcherEvent = {
+      type: 'transfer_batch',
+      operator: event.operator,
+      from: event.from,
+      to: event.to,
+      ids: event.ids,
+      values: event.values,
+      tx: event.tx_hash,
+      block: event.block_number,
+      timestamp: Date.now(),
+      gamma,
+      clob,
+      raw: event,
+    };
+    this.routeDualAddressEvent(event.from, event.to, 'transfer_batch', watcherEvent);
+  }
+
+  // ─── Broadcast Routes (called from route() switch for admin/resolution) ──
+
+  private routeBroadcast(
+    kind: EventKind,
+    event: unknown,
+    data: Record<string, unknown>,
   ): void {
+    const { gamma, clob } = this.extractEnrichment(data);
+    let watcherEvent: WatcherEvent;
+
+    switch (kind) {
+      case 'prepare': {
+        const e = event as unknown as ConditionPreparationEvent;
+        watcherEvent = {
+          type: 'prepare',
+          conditionId: e.condition_id,
+          oracle: e.oracle,
+          questionId: e.question_id,
+          outcomeSlotCount: e.outcome_slot_count,
+          tx: e.tx_hash,
+          block: e.block_number,
+          timestamp: Date.now(),
+          gamma,
+          clob,
+          raw: event as object,
+        };
+        break;
+      }
+      case 'resolve': {
+        const e = event as unknown as ConditionResolutionEvent;
+        watcherEvent = {
+          type: 'resolve',
+          conditionId: e.condition_id,
+          oracle: e.oracle,
+          questionId: e.question_id,
+          outcomeSlotCount: e.outcome_slot_count,
+          payoutNumerators: e.payout_numerators,
+          tx: e.tx_hash,
+          block: e.block_number,
+          timestamp: Date.now(),
+          gamma,
+          clob,
+          raw: event as object,
+        };
+        break;
+      }
+      case 'token_registered': {
+        const e = event as unknown as TokenRegisteredUpstreamEvent;
+        watcherEvent = {
+          type: 'token_registered',
+          token0: e.token0,
+          token1: e.token1,
+          conditionId: e.condition_id,
+          tx: e.tx_hash,
+          block: e.block_number,
+          timestamp: Date.now(),
+          gamma,
+          clob,
+          raw: event as object,
+        };
+        break;
+      }
+      case 'trading_paused': {
+        const e = event as unknown as TradingPausedUpstreamEvent;
+        watcherEvent = {
+          type: 'trading_paused',
+          pauser: e.pauser,
+          tx: e.tx_hash,
+          block: e.block_number,
+          timestamp: Date.now(),
+          gamma,
+          clob,
+          raw: event as object,
+        };
+        break;
+      }
+      case 'trading_unpaused': {
+        const e = event as unknown as TradingUnpausedUpstreamEvent;
+        watcherEvent = {
+          type: 'trading_unpaused',
+          unpauser: e.unpauser,
+          tx: e.tx_hash,
+          block: e.block_number,
+          timestamp: Date.now(),
+          gamma,
+          clob,
+          raw: event as object,
+        };
+        break;
+      }
+      default:
+        return;
+    }
+
+    this.routeBroadcastEvent(kind, watcherEvent);
+  }
+
+  // ─── Dispatch Helpers ─────────────────────────────────────────────────────
+
+  private routeAddressEvent(address: string, kind: EventKind, event: WatcherEvent): void {
     const norm = normalizeAddress(address);
     const subIds = this.addressIndex.get(norm);
     if (!subIds) return;
@@ -223,6 +522,40 @@ export class EventRouter {
       this.invoke(sub, event);
     }
   }
+
+  private routeDualAddressEvent(
+    addr1: string,
+    addr2: string,
+    kind: EventKind,
+    event: WatcherEvent,
+  ): void {
+    const norm1 = normalizeAddress(addr1);
+    const norm2 = normalizeAddress(addr2);
+    const dispatched = new Set<string>();
+
+    for (const norm of [norm1, norm2]) {
+      const subIds = this.addressIndex.get(norm);
+      if (!subIds) continue;
+      for (const subId of subIds) {
+        if (dispatched.has(subId)) continue;
+        dispatched.add(subId);
+        const sub = this.subs.get(subId);
+        if (!sub?.callback) continue;
+        if (!sub.options.events.includes(kind)) continue;
+        this.invoke(sub, event);
+      }
+    }
+  }
+
+  private routeBroadcastEvent(kind: EventKind, event: WatcherEvent): void {
+    for (const sub of this.subs.values()) {
+      if (!sub.callback) continue;
+      if (!sub.options.events.includes(kind)) continue;
+      this.invoke(sub, event);
+    }
+  }
+
+  // ─── Utilities ────────────────────────────────────────────────────────────
 
   private findOutcomeFilter(
     sub: InternalSubscription,

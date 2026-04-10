@@ -7,6 +7,9 @@
  * Example:
  *   npm run example:multiple -- 0xWallet1 0xWallet2 btc-updown-5m-1774601100
  *   DEBUG=1 npm run example:multiple -- 0xWallet1 0xWallet2 0xWallet3 btc-updown-5m-1774601100
+ *
+ * Note: The slug is used to fetch outcomes for client-side filtering.
+ * Without a slug, the server's enrichment provides market metadata on every event.
  */
 
 import { Watcher } from '../src/index.js';
@@ -47,6 +50,7 @@ async function main() {
   console.log(`WS:      ${WS_URL}`);
   console.log(`Debug:   ${DEBUG ? 'ON' : 'OFF (set DEBUG=1 to enable)'}\n`);
 
+  // gammaUrl needed here for slug-based outcome lookups
   const watcher = new Watcher({
     wsUrl: WS_URL,
     gammaUrl: GAMMA_URL,
@@ -94,30 +98,36 @@ async function main() {
   sub.watch((event: WatcherEvent) => {
     debug('Raw event received:', JSON.stringify(event.raw, null, 2));
     const ts = new Date(event.timestamp).toISOString();
-    const w = shortAddr(event.wallet);
 
     switch (event.type) {
-      case 'trade':
+      case 'trade': {
+        const w = shortAddr(event.wallet);
         console.log(
           `[${ts}] TRADE | ${w} | ${event.side.padEnd(4)} | ${event.outcome.name.padEnd(10)} | ` +
             `$${event.size.toFixed(2).padStart(10)} | price ${event.price.toFixed(4)} | ` +
+            `bid ${event.clob?.best_bid ?? 'n/a'} ask ${event.clob?.best_ask ?? 'n/a'} | ` +
             `tx ${event.tx.slice(0, 10)}...`,
         );
         break;
+      }
 
-      case 'split':
+      case 'split': {
+        const w = shortAddr(event.wallet);
         console.log(
           `[${ts}] SPLIT | ${w} | $${event.amount.toFixed(2).padStart(10)} | ` +
             `condition ${event.conditionId.slice(0, 10)}... | tx ${event.tx.slice(0, 10)}...`,
         );
         break;
+      }
 
-      case 'merge':
+      case 'merge': {
+        const w = shortAddr(event.wallet);
         console.log(
           `[${ts}] MERGE | ${w} | $${event.amount.toFixed(2).padStart(10)} | ` +
             `condition ${event.conditionId.slice(0, 10)}... | tx ${event.tx.slice(0, 10)}...`,
         );
         break;
+      }
     }
   });
 
