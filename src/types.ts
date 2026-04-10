@@ -126,6 +126,7 @@ export interface TradeEvent {
   tx: string;
   block: number;
   timestamp: number;
+  normalized: boolean;
   gamma?: GammaEnrichment | null;
   clob?: ClobEnrichment | null;
   raw: object;

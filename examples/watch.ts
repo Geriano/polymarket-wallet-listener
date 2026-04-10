@@ -89,7 +89,7 @@ async function main() {
           `[${ts}] TRADE | ${event.market} | ${event.side.padEnd(4)} | ${event.outcome.name.padEnd(10)} | ` +
             `$${event.size.toFixed(2).padStart(10)} | price ${event.price.toFixed(4)} | ` +
             `bid ${event.clob?.best_bid ?? 'n/a'} ask ${event.clob?.best_ask ?? 'n/a'} | ` +
-            `tx ${event.tx.slice(0, 10)}...`,
+            `${event.normalized ? 'NORM' : '    '} | tx ${event.tx.slice(0, 10)}...`,
         );
         break;
 

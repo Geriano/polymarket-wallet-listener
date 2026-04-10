@@ -215,22 +215,30 @@ export class EventRouter {
       if (!sub?.callback) continue;
       if (!sub.options.events.includes('trade')) continue;
 
-      const walletSide: 'Buy' | 'Sell' = isMaker
+      const rawWalletSide: 'Buy' | 'Sell' = isMaker
         ? event.side
         : event.side === 'Buy'
           ? 'Sell'
           : 'Buy';
 
-      const outcomeFilter = this.findOutcomeFilter(sub, outcomeTokenId);
+      const norm = this.normalizeBinaryOutcome(
+        outcomeTokenId,
+        rawWalletSide,
+        event.price,
+        event.usdc_amount,
+        gamma,
+      );
+
+      const outcomeFilter = this.findOutcomeFilter(sub, norm.outcomeTokenId);
       if (sub.options.outcomes && sub.options.outcomes.length > 0) {
         if (!outcomeFilter) continue;
       }
 
-      if (outcomeFilter?.side && outcomeFilter.side !== walletSide) continue;
-      if (outcomeFilter?.size != null && event.usdc_amount < outcomeFilter.size) continue;
+      if (outcomeFilter?.side && outcomeFilter.side !== norm.walletSide) continue;
+      if (outcomeFilter?.size != null && norm.usdcAmount < outcomeFilter.size) continue;
 
-      const outcome: OutcomeInfo = this.outcomeRegistry.get(outcomeTokenId) ?? {
-        id: outcomeFilter?.id ?? outcomeTokenId,
+      const outcome: OutcomeInfo = this.outcomeRegistry.get(norm.outcomeTokenId) ?? {
+        id: outcomeFilter?.id ?? norm.outcomeTokenId,
         name: outcomeFilter?.name ?? 'unknown',
         price: outcomeFilter?.price ?? '0',
       };
@@ -242,12 +250,13 @@ export class EventRouter {
         wallet,
         market,
         outcome,
-        side: walletSide,
-        size: event.usdc_amount,
-        price: event.price,
+        side: norm.walletSide,
+        size: norm.usdcAmount,
+        price: norm.price,
         tx: event.tx_hash,
         block: event.block_number,
         timestamp: Date.now(),
+        normalized: norm.normalized,
         gamma,
         clob,
         raw: event,
@@ -556,6 +565,44 @@ export class EventRouter {
   }
 
   // ─── Utilities ────────────────────────────────────────────────────────────
+
+  private normalizeBinaryOutcome(
+    outcomeTokenId: string,
+    walletSide: 'Buy' | 'Sell',
+    price: number,
+    usdcAmount: number,
+    gamma: GammaEnrichment | null,
+  ): {
+    normalized: boolean;
+    outcomeTokenId: string;
+    walletSide: 'Buy' | 'Sell';
+    price: number;
+    usdcAmount: number;
+  } {
+    if (!gamma?.clob_token_ids || gamma.clob_token_ids.length !== 2) {
+      return { normalized: false, outcomeTokenId, walletSide, price, usdcAmount };
+    }
+
+    const [canonicalTokenId, complementTokenId] = gamma.clob_token_ids;
+
+    if (outcomeTokenId !== complementTokenId) {
+      return { normalized: false, outcomeTokenId, walletSide, price, usdcAmount };
+    }
+
+    const flippedSide: 'Buy' | 'Sell' = walletSide === 'Buy' ? 'Sell' : 'Buy';
+    const complementPrice = 1 - price;
+    const normalizedUsdc = price > 0
+      ? (usdcAmount / price) * complementPrice
+      : usdcAmount;
+
+    return {
+      normalized: true,
+      outcomeTokenId: canonicalTokenId,
+      walletSide: flippedSide,
+      price: complementPrice,
+      usdcAmount: normalizedUsdc,
+    };
+  }
 
   private findOutcomeFilter(
     sub: InternalSubscription,
