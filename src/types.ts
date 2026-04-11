@@ -183,6 +183,7 @@ export interface FeeEvent {
 export interface SplitEvent {
   type: 'split';
   wallet: string;
+  stakeholder: string;
   conditionId: string;
   amount: number;
   collateralAmount: number;
@@ -199,6 +200,7 @@ export interface SplitEvent {
 export interface MergeEvent {
   type: 'merge';
   wallet: string;
+  stakeholder: string;
   conditionId: string;
   amount: number;
   collateralAmount: number;

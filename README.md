@@ -423,7 +423,8 @@ Wallet locked USDC to mint YES+NO outcome tokens (entering a market).
 ```ts
 {
   type: 'split'
-  wallet: string
+  wallet: string            // actual user EOA (from server enrichment)
+  stakeholder: string       // raw stakeholder from event (NRA = exchange addr)
   conditionId: string
   amount: number            // USDC locked (raw / 1e6)
   collateralAmount: number  // same as amount (canonical name)
@@ -442,7 +443,8 @@ Wallet burned YES+NO outcome tokens to release USDC (exiting a market).
 ```ts
 {
   type: 'merge'
-  wallet: string
+  wallet: string            // actual user EOA (from server enrichment)
+  stakeholder: string       // raw stakeholder from event (NRA = exchange addr)
   conditionId: string
   amount: number            // USDC released (raw / 1e6)
   collateralAmount: number  // same as amount (canonical name)
@@ -461,7 +463,7 @@ Wallet claimed payout after market resolution.
 ```ts
 {
   type: 'redeem'
-  wallet: string
+  wallet: string            // actual user EOA (from server enrichment)
   conditionId: string
   payout: number            // USDC claimed (raw / 1e6)
   collateralAmount: number  // same as payout (canonical name)

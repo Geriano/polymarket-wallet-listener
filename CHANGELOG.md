@@ -5,16 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.2] - 2026-04-11
+## [0.3.3] - 2026-04-11
 
 ### Added
+- **`stakeholder`** field on `SplitEvent` and `MergeEvent` — raw stakeholder address from the server event (for NRA events this is the exchange address, not the user).
 - **`negRisk`** field on `SplitEvent` and `MergeEvent` — `true` when the position event came from the NegRisk Adapter.
 - **`source`** field on `SplitEvent` and `MergeEvent` — contract address that emitted the event (CT or NRA).
-- **`collateralAmount`** field on `SplitEvent` and `MergeEvent` — human-readable collateral value from server enrichment.
-- **`collateralAmount`** field on `RedeemEvent` — human-readable payout value from server enrichment.
+- **`collateralAmount`** field on `SplitEvent`, `MergeEvent`, and `RedeemEvent` — human-readable collateral value from server enrichment.
 
 ### Changed
-- Updated upstream wire types (`PositionSplitEvent`, `PositionsMergeEvent`, `PayoutRedemptionEvent`) to include new server v0.7.0 fields.
+- **`wallet` field on `SplitEvent`/`MergeEvent`/`RedeemEvent`** now uses the server's enrichment `wallet` (actual user EOA resolved via `eth_getTransactionByHash`), falling back to `stakeholder`/`redeemer` if unavailable. Previously always used raw `stakeholder`.
+- **Dual-address routing** for split, merge, and redeem events — matches subscriptions by both the enrichment `wallet` and the raw `stakeholder`/`redeemer` address. Ensures NRA events (where `stakeholder` = exchange) still route to the correct user subscription.
+- Updated upstream wire types to include server v0.7.0+ fields (`collateral_amount`, `source`, `neg_risk`).
 
 ## [0.3.1] - 2026-04-11
 

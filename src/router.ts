@@ -330,9 +330,11 @@ export class EventRouter {
   private routePositionSplit(event: PositionSplitEvent, data: Record<string, unknown>): void {
     const { gamma, clob } = this.extractEnrichment(data);
     const amount = parseFloat(event.amount) / 1e6;
-    this.routeAddressEvent(event.stakeholder, 'split', {
-      type: 'split',
-      wallet: event.stakeholder,
+    const wallet = (data.wallet as string) || event.stakeholder;
+    const watcherEvent = {
+      type: 'split' as const,
+      wallet,
+      stakeholder: event.stakeholder,
       conditionId: event.condition_id,
       amount,
       collateralAmount: event.collateral_amount ?? amount,
@@ -344,15 +346,18 @@ export class EventRouter {
       gamma,
       clob,
       raw: event,
-    });
+    };
+    this.routeDualAddressEvent(wallet, event.stakeholder, 'split', watcherEvent);
   }
 
   private routePositionsMerge(event: PositionsMergeEvent, data: Record<string, unknown>): void {
     const { gamma, clob } = this.extractEnrichment(data);
     const amount = parseFloat(event.amount) / 1e6;
-    this.routeAddressEvent(event.stakeholder, 'merge', {
-      type: 'merge',
-      wallet: event.stakeholder,
+    const wallet = (data.wallet as string) || event.stakeholder;
+    const watcherEvent = {
+      type: 'merge' as const,
+      wallet,
+      stakeholder: event.stakeholder,
       conditionId: event.condition_id,
       amount,
       collateralAmount: event.collateral_amount ?? amount,
@@ -364,15 +369,17 @@ export class EventRouter {
       gamma,
       clob,
       raw: event,
-    });
+    };
+    this.routeDualAddressEvent(wallet, event.stakeholder, 'merge', watcherEvent);
   }
 
   private routePayoutRedemption(event: PayoutRedemptionEvent, data: Record<string, unknown>): void {
     const { gamma, clob } = this.extractEnrichment(data);
     const payout = parseFloat(event.payout) / 1e6;
-    this.routeAddressEvent(event.redeemer, 'redeem', {
-      type: 'redeem',
-      wallet: event.redeemer,
+    const wallet = (data.wallet as string) || event.redeemer;
+    const watcherEvent = {
+      type: 'redeem' as const,
+      wallet,
       conditionId: event.condition_id,
       payout,
       collateralAmount: event.collateral_amount ?? payout,
@@ -382,7 +389,8 @@ export class EventRouter {
       gamma,
       clob,
       raw: event,
-    });
+    };
+    this.routeDualAddressEvent(wallet, event.redeemer, 'redeem', watcherEvent);
   }
 
   private routePositionsConverted(event: PositionsConvertedEvent, data: Record<string, unknown>): void {
