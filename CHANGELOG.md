@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-04-11
+
+### Changed
+- **`traded()` replaces `bought()` + `sold()`** — one method per event type (15 total). Users check `event.side` in the callback instead of using separate methods.
+- **`size` now reads from `collateral_amount`** (server v0.4.0 canonical field) instead of deprecated `usdc_amount`. Falls back to `usdc_amount` for older servers.
+
+### Added
+- **`collateralAmount`** field on `TradeEvent` — same value as `size`, canonical name going forward.
+- **`negRisk`** field on `TradeEvent` — `true` when fill came from NegRisk CTF Exchange.
+- **`buyer`** field on `TradeEvent` — address that bought outcome tokens (server-derived).
+- **`seller`** field on `TradeEvent` — address that sold outcome tokens (server-derived).
+
+### Removed
+- `bought()` and `sold()` methods (replaced by `traded()`).
+
+## [0.3.0] - 2026-04-11
+
+### Added
+- **Typed event callbacks** on `Subscription`: `bought()`, `sold()`, `splitted()`, `merged()`, `redeemed()`, `matched()`, `cancelled()`, `fee()`, `converted()`, `prepared()`, `resolved()`, `transferred()`, `transferredBatch()`, `tokenRegistered()`, `tradingPaused()`, `tradingUnpaused()`. Each returns a disposer function. Multiple handlers per event supported (additive). Coexists with `watch()` catch-all.
+- **Auto-subscribe event types**: typed methods auto-add their event kind to the wire subscription without requiring `events: [...]` in `SubscribeOptions`.
+- **`buyPrice` / `sellPrice` fields on `TradeEvent`**: explicit buyer/seller prices. `buyPrice` is always the buyer's cost per share; `sellPrice = 1 - buyPrice` for binary markets.
+- **Extend/exclude wire protocol**: leverages stream server v0.5.0 `extend`/`exclude` actions. Adding wallets sends only the delta; full rebuild only on partial removals.
+- **Microtask debouncing**: rapid handler registrations batched into a single wire message via `queueMicrotask`.
+- `WatcherEventMap`, `TypedHandler`, `ExtendMessage`, `ExcludeMessage`, `ProtocolMessage` types exported
+
+### Changed
+- `InternalSubscription` carries `handlers` map + `autoEvents` set alongside `callback`
+- Protocol refactored from pure function (`buildSubscribeMessage`) to stateful `ProtocolState` class tracking last-sent state for delta computation
+- Router dispatches to both catch-all `callback` and per-event-kind typed `handlers`
+- Subscription rebuild debounced via `queueMicrotask` instead of synchronous
+
 ## [0.2.0] - 2026-04-10
 
 ### Added

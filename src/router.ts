@@ -24,6 +24,10 @@ import type {
   WatcherEvent,
 } from './types.js';
 
+function hasListeners(sub: InternalSubscription): boolean {
+  return sub.callback !== null || sub.handlers.size > 0;
+}
+
 export class EventRouter {
   // subscriptionId → InternalSubscription
   private readonly subs = new Map<string, InternalSubscription>();
@@ -212,7 +216,7 @@ export class EventRouter {
 
     for (const [subId, { wallet, isMaker }] of matched) {
       const sub = this.subs.get(subId);
-      if (!sub?.callback) continue;
+      if (!sub || !hasListeners(sub)) continue;
       if (!sub.options.events.includes('trade')) continue;
 
       const rawWalletSide: 'Buy' | 'Sell' = isMaker
@@ -225,7 +229,7 @@ export class EventRouter {
         outcomeTokenId,
         rawWalletSide,
         event.price,
-        event.usdc_amount,
+        event.collateral_amount ?? event.usdc_amount,
         gamma,
       );
 
@@ -244,6 +248,8 @@ export class EventRouter {
       };
 
       const market = gamma?.question ?? '';
+      const buyPrice = norm.walletSide === 'Buy' ? norm.price : 1 - norm.price;
+      const sellPrice = 1 - buyPrice;
 
       this.invoke(sub, {
         type: 'trade',
@@ -252,7 +258,13 @@ export class EventRouter {
         outcome,
         side: norm.walletSide,
         size: norm.usdcAmount,
+        collateralAmount: norm.usdcAmount,
         price: norm.price,
+        buyPrice,
+        sellPrice,
+        negRisk: event.neg_risk ?? false,
+        buyer: event.buyer ?? '',
+        seller: event.seller ?? '',
         tx: event.tx_hash,
         block: event.block_number,
         timestamp: Date.now(),
@@ -526,7 +538,7 @@ export class EventRouter {
 
     for (const subId of subIds) {
       const sub = this.subs.get(subId);
-      if (!sub?.callback) continue;
+      if (!sub || !hasListeners(sub)) continue;
       if (!sub.options.events.includes(kind)) continue;
       this.invoke(sub, event);
     }
@@ -549,7 +561,7 @@ export class EventRouter {
         if (dispatched.has(subId)) continue;
         dispatched.add(subId);
         const sub = this.subs.get(subId);
-        if (!sub?.callback) continue;
+        if (!sub || !hasListeners(sub)) continue;
         if (!sub.options.events.includes(kind)) continue;
         this.invoke(sub, event);
       }
@@ -558,7 +570,7 @@ export class EventRouter {
 
   private routeBroadcastEvent(kind: EventKind, event: WatcherEvent): void {
     for (const sub of this.subs.values()) {
-      if (!sub.callback) continue;
+      if (!hasListeners(sub)) continue;
       if (!sub.options.events.includes(kind)) continue;
       this.invoke(sub, event);
     }
@@ -612,15 +624,35 @@ export class EventRouter {
   }
 
   private invoke(sub: InternalSubscription, event: WatcherEvent): void {
-    try {
-      const result = sub.callback!(event);
-      if (result instanceof Promise) {
-        result.catch((err) => {
-          console.warn('[polymarket-wallet-listener] async callback error:', err);
-        });
+    // Call catch-all watch() callback
+    if (sub.callback) {
+      try {
+        const result = sub.callback(event);
+        if (result instanceof Promise) {
+          result.catch((err) => {
+            console.warn('[polymarket-wallet-listener] async callback error:', err);
+          });
+        }
+      } catch (err) {
+        console.warn('[polymarket-wallet-listener] sync callback error:', err);
       }
-    } catch (err) {
-      console.warn('[polymarket-wallet-listener] sync callback error:', err);
+    }
+
+    // Call typed handlers for this event kind
+    const handlers = sub.handlers.get(event.type as EventKind);
+    if (handlers) {
+      for (const handler of handlers) {
+        try {
+          const result = handler(event);
+          if (result instanceof Promise) {
+            result.catch((err) => {
+              console.warn('[polymarket-wallet-listener] async callback error:', err);
+            });
+          }
+        } catch (err) {
+          console.warn('[polymarket-wallet-listener] sync callback error:', err);
+        }
+      }
     }
   }
 }

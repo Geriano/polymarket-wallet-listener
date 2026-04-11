@@ -6,8 +6,11 @@ Designed for copy-trading, whale-watching, and position-tracking workflows.
 
 ## Features
 
+- **Typed event callbacks**: `sub.traded(cb)`, `sub.splitted(cb)`, `sub.merged(cb)`, etc. — one method per event type, fully typed
 - **15 event types**: trade, match, cancel, fee, split, merge, redeem, convert, prepare, resolve, transfer, transfer_batch, token_registered, trading_paused, trading_unpaused
 - **Server-side enrichment**: every event carries `gamma` (market metadata) and `clob` (real-time pricing) fields automatically
+- **Buy/sell price normalization**: `buyPrice` and `sellPrice` on every trade event
+- **Incremental subscriptions**: leverages server `extend`/`exclude` protocol for efficient wallet addition/removal
 - Per-outcome filtering with side and minimum size thresholds
 - Automatic proxy wallet derivation (Gnosis Safe CREATE2) with option to skip
 - Multi-wallet subscriptions in a single WebSocket connection
@@ -24,31 +27,54 @@ npm install polymarket-wallet-listener
 
 ## Quick Start
 
+### Typed callbacks (recommended)
+
 ```ts
 import { Watcher } from 'polymarket-wallet-listener'
 
-// No gammaUrl needed — server provides enrichment automatically
-const watcher = new Watcher({
-  wsUrl: 'ws://your-stream-server/ws',
+const watcher = new Watcher({ wsUrl: 'ws://your-stream-server/ws' })
+const sub = watcher.subscribe('0xWhaleAddress')
+
+// No events: [...] needed — typed methods auto-subscribe
+sub.traded(async (event) => {
+  // event is TradeEvent — fully typed, check side yourself
+  const label = event.side === 'Buy' ? 'BUY' : 'SELL'
+  console.log(`${label} ${event.outcome.name} $${event.size} | buyer ${event.buyer}`)
+  console.log(`  bid: ${event.clob?.best_bid} ask: ${event.clob?.best_ask}`)
 })
 
-// Watch all markets for a wallet
+sub.splitted(async (event) => {
+  console.log(`SPLIT $${event.amount}`)
+})
+
+// Disposer pattern — call off() to stop listening
+const off = sub.merged(async (event) => {
+  console.log(`MERGE $${event.amount}`)
+})
+// off()  // call to remove this handler
+
+// Clean up all handlers
+sub.unwatch()
+watcher.close()
+```
+
+### With watch() catch-all
+
+```ts
 const sub = watcher.subscribe('0xWhaleAddress', {
   events: ['trade', 'split', 'merge', 'redeem'],
 })
 
 sub.watch(async (event) => {
-  if (event.type === 'trade') {
-    // Market metadata and pricing from server enrichment
-    console.log(`${event.market} | ${event.side} ${event.outcome.name} $${event.size}`)
-    console.log(`  bid: ${event.clob?.best_bid} ask: ${event.clob?.best_ask}`)
-    console.log(`  volume: ${event.gamma?.volume_24hr}`)
+  switch (event.type) {
+    case 'trade':
+      console.log(`${event.side} ${event.outcome.name} $${event.size}`)
+      break
+    case 'split':
+      console.log(`Split $${event.amount}`)
+      break
   }
 })
-
-// Clean up
-sub.unwatch()
-watcher.close()
 ```
 
 ### With slug-based outcome filtering
@@ -56,7 +82,6 @@ watcher.close()
 ```ts
 import { Watcher, Side } from 'polymarket-wallet-listener'
 
-// gammaUrl needed for slug-based lookups
 const watcher = new Watcher({
   wsUrl: 'ws://your-stream-server/ws',
   gammaUrl: 'https://gamma-api.polymarket.com',
@@ -69,13 +94,10 @@ const sub = watcher.subscribe('0xWhaleAddress', {
     { ...outcomes[0], side: Side.Buy, size: 10 },  // "Up" buys >= $10
     { ...outcomes[1] },                              // "Down" all trades
   ],
-  events: ['trade'],
 })
 
-sub.watch(async (event) => {
-  if (event.type === 'trade') {
-    console.log(`${event.side} ${event.outcome.name} $${event.size} @ ${event.price}`)
-  }
+sub.traded(async (event) => {
+  console.log(`${event.side} ${event.outcome.name} $${event.size} @ buy ${event.buyPrice}`)
 })
 ```
 
@@ -88,34 +110,36 @@ sub.watch(async (event) => {
                           └────────┬─────────┘
                                    │ outcomes()
                                    ▼
-┌─────────┐  subscribe()  ┌───────────────────────────┐
-│  Your   │ ────────────▶ │        Watcher            │
-│  Code   │               │                           │
-│         │ ◀──────────── │  ┌─────────┐ ┌─────────┐ │
-│         │   watch(cb)   │  │ Router  │ │Protocol │ │
-└─────────┘               │  └────┬────┘ └────┬────┘ │
-                          │       │           │      │
-                          │       ▼           ▼      │
-                          │  ┌────────────────────┐  │
-                          │  │   WebSocket conn   │  │
-                          │  └─────────┬──────────┘  │
-                          └────────────┼─────────────┘
-                                       │
-                                       ▼
+┌─────────┐  subscribe()  ┌───────────────────────────────────┐
+│  Your   │ ────────────▶ │            Watcher                │
+│  Code   │               │                                   │
+│         │ ◀──────────── │  ┌─────────┐ ┌─────────────────┐ │
+│         │  traded(cb)   │  │ Router  │ │ ProtocolState   │ │
+│         │  splitted(cb) │  │         │ │ (extend/exclude │ │
+│         │  watch(cb)    │  │         │ │  diff engine)   │ │
+└─────────┘               │  └────┬────┘ └───────┬─────────┘ │
+                          │       │              │           │
+                          │       ▼              ▼           │
+                          │  ┌────────────────────────────┐  │
+                          │  │     WebSocket connection    │  │
+                          │  └────────────┬───────────────┘  │
+                          └───────────────┼──────────────────┘
+                                          │
+                                          ▼
                           ┌──────────────────────────┐
-                          │  Stream Server (v0.3.0+) │
-                          │  15 event types with     │
+                          │  Stream Server (v0.5.0+) │
+                          │  subscribe/extend/exclude│
                           │  gamma + clob enrichment │
                           └──────────────────────────┘
 ```
 
 **Flow:**
 1. On `subscribe()`, a lazy WebSocket connection is opened to the stream server
-2. The SDK builds server-side filter messages (address filters per event type, with data-driven `ADDRESS_FIELDS` mapping)
+2. `ProtocolState` computes the optimal wire message: `subscribe` (initial), `extend` (additions), or `exclude` (full event type removal). Rapid changes are debounced via `queueMicrotask`.
 3. The server enriches each event with `gamma` (market metadata) and `clob` (real-time pricing) before sending
-4. Incoming events are routed through `EventRouter`, which matches them to subscriptions and applies client-side outcome/side/size filters
-5. Matched events — with enrichment data attached — are delivered to your `watch()` callback
-6. Optionally, `watcher.outcomes(slug)` can still fetch outcome metadata from the Gamma API for slug-based filtering
+4. `EventRouter` matches incoming events to subscriptions and applies client-side outcome/side/size filters
+5. Matched events are delivered to typed handlers (`traded`, `splitted`, etc.) and the `watch()` catch-all
+6. Optionally, `watcher.outcomes(slug)` can fetch outcome metadata from the Gamma API for slug-based filtering
 
 ## API Reference
 
@@ -207,28 +231,59 @@ const sub = watcher.subscribe('0xProxyAddress', {
 - **Server-side**: Address filters (maker/taker/stakeholder/redeemer) are always applied on the server. If all outcome filters have a `size` threshold, the minimum is sent as a server-side `usdc_amount >= N` filter.
 - **Client-side**: Outcome token matching, side filtering, and per-outcome size filtering are applied by the SDK's `EventRouter`.
 
+### Typed Event Callbacks
+
+Each method registers a typed handler and auto-subscribes to the event type. Returns a disposer function. Multiple handlers per event are supported (additive). One method per event type (15 total).
+
+| Method | Event Type |
+|---|---|
+| `sub.traded(cb)` | `TradeEvent` |
+| `sub.splitted(cb)` | `SplitEvent` |
+| `sub.merged(cb)` | `MergeEvent` |
+| `sub.redeemed(cb)` | `RedeemEvent` |
+| `sub.matched(cb)` | `MatchEvent` |
+| `sub.cancelled(cb)` | `CancelEvent` |
+| `sub.fee(cb)` | `FeeEvent` |
+| `sub.converted(cb)` | `ConvertEvent` |
+| `sub.prepared(cb)` | `PrepareEvent` |
+| `sub.resolved(cb)` | `ResolveEvent` |
+| `sub.transferred(cb)` | `TransferEvent` |
+| `sub.transferredBatch(cb)` | `TransferBatchEvent` |
+| `sub.tokenRegistered(cb)` | `TokenRegisteredEvent` |
+| `sub.tradingPaused(cb)` | `TradingPausedEvent` |
+| `sub.tradingUnpaused(cb)` | `TradingUnpausedEvent` |
+
+```ts
+// Auto-subscribes to 'trade' event type on the wire
+const offTrade = sub.traded(async (event) => {
+  // event is TradeEvent — TypeScript knows all fields
+  if (event.side === 'Buy') {
+    console.log(`BUY ${event.outcome.name} $${event.size} @ ${event.buyPrice}`)
+  } else {
+    console.log(`SELL ${event.outcome.name} $${event.size} @ ${event.sellPrice}`)
+  }
+})
+
+// Multiple handlers for same event type — both fire
+sub.traded(async (event) => {
+  await sendAlert(event)
+})
+
+// Dispose a specific handler
+offTrade()
+```
+
+**Auto-subscribe**: calling `sub.traded()` automatically adds `'trade'` to the wire subscription. You don't need to pass `events: ['trade']` in `SubscribeOptions`. When the disposer is called and no handlers remain for that event type, it is automatically removed from the subscription.
+
 ### `subscription.watch(callback)`
 
-Start receiving events. Replaces any previous callback.
+Catch-all callback. Receives all `WatcherEvent` types — use a switch statement to narrow. Coexists with typed callbacks: `watch()` fires first, then typed handlers.
 
 ```ts
 sub.watch(async (event) => {
   switch (event.type) {
     case 'trade':
-      console.log(`${event.market} | ${event.side} ${event.outcome.name} $${event.size}`)
-      console.log(`  bid: ${event.clob?.best_bid} ask: ${event.clob?.best_ask}`)
-      break
-    case 'split':
-      console.log(`Split $${event.amount} on ${event.gamma?.slug}`)
-      break
-    case 'merge':
-      console.log(`Merge $${event.amount}`)
-      break
-    case 'redeem':
-      console.log(`Redeem $${event.payout}`)
-      break
-    case 'resolve':
-      console.log(`Resolved: ${event.gamma?.question} payouts: [${event.payoutNumerators}]`)
+      console.log(`${event.side} ${event.outcome.name} $${event.size}`)
       break
     default:
       console.log(`${event.type} | tx ${event.tx}`)
@@ -237,11 +292,11 @@ sub.watch(async (event) => {
 })
 ```
 
-The callback can be sync or async. Errors thrown in the callback are caught and logged via `console.warn` to prevent breaking the event stream while remaining visible for debugging.
+The callback can be sync or async. Errors are caught and logged via `console.warn`.
 
 ### `subscription.unwatch()`
 
-Stop receiving events and update the upstream WebSocket subscription. If this was the last active subscription, an unsubscribe message is sent to the server.
+Stop receiving events. Removes the catch-all callback and all typed handlers. Updates the upstream WebSocket subscription.
 
 ### `subscription.id`
 
@@ -284,17 +339,29 @@ Emitted when a watched wallet buys or sells an outcome token (`order_filled`).
 ```ts
 {
   type: 'trade'
-  wallet: string         // Address that matched (maker or taker)
-  market: string         // Market question (from gamma enrichment)
-  outcome: OutcomeInfo   // { id, name, price }
-  side: 'Buy' | 'Sell'  // From the wallet's perspective
-  size: number           // USDC amount
-  price: number          // Price per outcome token
+  wallet: string            // Address that matched (maker or taker)
+  market: string            // Market question (from gamma enrichment)
+  outcome: OutcomeInfo      // { id, name, price }
+  side: 'Buy' | 'Sell'     // From the wallet's perspective
+  size: number              // Collateral amount (USDC/pUSD)
+  collateralAmount: number  // Same as size — canonical name going forward
+  price: number             // Price per outcome token (from wallet's perspective)
+  buyPrice: number          // Price from buyer's perspective
+  sellPrice: number         // Price from seller's perspective (1 - buyPrice)
+  negRisk: boolean          // true if fill from NegRisk CTF Exchange
+  buyer: string             // Address that bought outcome tokens (server-derived)
+  seller: string            // Address that sold outcome tokens (server-derived)
   tx: string
   block: number
   timestamp: number
+  normalized: boolean       // true if complement outcome was normalized to canonical
 }
 ```
+
+**Price fields**:
+- `price` — the price from the wallet's perspective (equals `buyPrice` when `side === 'Buy'`, `sellPrice` when `side === 'Sell'`)
+- `buyPrice` — always the buyer's cost per outcome share, regardless of which side the wallet is on
+- `sellPrice` — always `1 - buyPrice` for binary markets
 
 **Side resolution**: The `side` field reflects the wallet's perspective. If the wallet is the maker on a Buy order, `side` is `'Buy'`. If the wallet is the taker on a Buy order (counterparty), `side` is `'Sell'`.
 
@@ -648,12 +715,14 @@ export type {
   // Enrichment
   GammaEnrichment, ClobEnrichment, GammaSeries, GammaTag,
   // Events
-  WatcherEvent,
+  WatcherEvent, WatcherEventMap, TypedHandler,
   TradeEvent, MatchEvent, CancelEvent, FeeEvent,
   SplitEvent, MergeEvent, RedeemEvent, ConvertEvent,
   PrepareEvent, ResolveEvent,
   TransferEvent, TransferBatchEvent,
   TokenRegisteredEvent, TradingPausedEvent, TradingUnpausedEvent,
+  // Protocol
+  ExtendMessage, ExcludeMessage, ProtocolMessage,
   // Configuration
   OutcomeInfo, OutcomeFilter, SubscribeOptions,
   WatcherOptions, EventKind, ReconnectOptions, KeepaliveOptions,
@@ -682,14 +751,12 @@ npm run example:multiple -- 0xWallet1 0xWallet2 market-slug
 
 ```ts
 const watcher = new Watcher({ wsUrl })
+const sub = watcher.subscribe('0xWhale')
 
-watcher.subscribe('0xWhale', {
-  events: ['trade'],
-}).watch(async (event) => {
-  if (event.type === 'trade') {
-    console.log(`${event.market} | ${event.side} ${event.outcome.name} $${event.size}`)
-    await executeTrade(event.outcome.id, event.side, event.size)
-  }
+sub.traded(async (event) => {
+  const price = event.side === 'Buy' ? event.buyPrice : event.sellPrice
+  console.log(`COPY ${event.side} ${event.outcome.name} $${event.size} @ ${price}`)
+  await executeTrade(event.outcome.id, event.side, event.size)
 })
 ```
 
@@ -801,33 +868,30 @@ npm run example:multiple -- 0xAddr1 0xAddr2 market-slug
 
 The SDK communicates with the upstream stream server over WebSocket using JSON messages.
 
-**Subscribe request** (sent by SDK):
+**Subscribe** (full state, sent on first connection or reconnect):
 ```json
-{
-  "action": "subscribe",
-  "subscriptions": [
-    {
-      "event_type": "order_filled",
-      "filters": [
-        { "field": "maker", "op": "eq", "value": "0xAddress" }
-      ]
-    },
-    {
-      "event_type": "order_filled",
-      "filters": [
-        { "field": "taker", "op": "eq", "value": "0xAddress" },
-        { "field": "usdc_amount", "op": "gte", "value": 10 }
-      ]
-    },
-    { "event_type": "condition_resolution" }
-  ]
-}
+{ "action": "subscribe", "subscriptions": [
+  { "event_type": "order_filled", "filters": [{ "field": "maker", "op": "eq", "value": "0xAddr" }] },
+  { "event_type": "condition_resolution" }
+]}
 ```
 
-Broadcast events (cancel, prepare, resolve, admin) are subscribed without address filters.
+**Extend** (incremental, sent when adding wallets or event types):
+```json
+{ "action": "extend", "subscriptions": [
+  { "event_type": "order_filled", "filters": [{ "field": "taker", "op": "eq", "value": "0xNew" }] }
+]}
+```
+
+**Exclude** (remove entire event types):
+```json
+{ "action": "exclude", "event_types": ["condition_resolution"] }
+```
+
+The SDK automatically chooses the optimal action: `extend` for pure additions, `exclude` when removing entire event types, and full `subscribe` rebuild for partial removals. Multiple rapid changes are debounced via `queueMicrotask`.
 
 **Server responses:**
-- `{"type": "subscribed", "event_types": ["order_filled", ...]}` -- subscription acknowledged
+- `{"type": "subscribed", "event_types": [...], "subscriptions": [...]}` -- acknowledged (for subscribe, extend, and exclude)
 - `{"type": "event", "data": { ..., "gamma": {...}, "clob": {...} }}` -- enriched event
 - `{"type": "pong"}` -- keepalive response
 - `{"type": "error", "message": "..."}` -- server error

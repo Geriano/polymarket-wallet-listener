@@ -2,7 +2,7 @@ import WebSocketImpl from 'ws';
 import { GammaClient } from './gamma.js';
 import { EventRouter } from './router.js';
 import { Subscription } from './subscription.js';
-import { buildSubscribeMessage } from './protocol.js';
+import { ProtocolState } from './protocol.js';
 import { ConnectionError, ProtocolError, ReconnectError, ServerError } from './errors.js';
 import type {
   InternalSubscription,
@@ -46,6 +46,8 @@ export class Watcher {
   // Subscriptions
   private readonly subscriptions = new Map<string, InternalSubscription>();
   private readonly router = new EventRouter();
+  private readonly protocol = new ProtocolState();
+  private pendingSend = false;
 
   // Outcomes cache: slug → OutcomeInfo[]
   private readonly outcomesCache = new Map<string, OutcomeInfo[]>();
@@ -185,6 +187,7 @@ export class Watcher {
       this.reconnectAttempt = 0;
       this.startKeepalive();
       this.emit('connected');
+      this.protocol.reset();
       this.sendCurrentSubscription();
     };
 
@@ -244,9 +247,22 @@ export class Watcher {
   // ─── Internal: Subscription Management ───────────────────────────────────
 
   private rebuildSubscription(): void {
-    for (const [id, sub] of this.subscriptions) {
-      if (!sub.callback) {
-        this.router.unregister(id);
+    this.scheduleSend();
+  }
+
+  private scheduleSend(): void {
+    if (this.pendingSend) return;
+    this.pendingSend = true;
+    queueMicrotask(() => {
+      this.pendingSend = false;
+      this.flushSubscription();
+    });
+  }
+
+  private flushSubscription(): void {
+    for (const [, sub] of this.subscriptions) {
+      if (!sub.callback && sub.handlers.size === 0) {
+        this.router.unregister(sub.id);
       } else {
         this.router.register(sub);
       }
@@ -258,12 +274,16 @@ export class Watcher {
     if (!this.ws || this.ws.readyState !== 1) return;
     if (this.subscriptions.size === 0) {
       this.sendRaw(JSON.stringify({ action: 'unsubscribe' }));
+      this.protocol.reset();
       return;
     }
-    const message = buildSubscribeMessage(this.subscriptions);
-    const payload = JSON.stringify(message);
-    this.emit('debug', 'subscribe_sent', payload.length > 1000 ? payload.slice(0, 1000) + '...' : payload);
-    this.sendRaw(payload);
+
+    const messages = this.protocol.computeMessages(this.subscriptions);
+    for (const msg of messages) {
+      const payload = JSON.stringify(msg);
+      this.emit('debug', `${msg.action}_sent`, payload.length > 1000 ? payload.slice(0, 1000) + '...' : payload);
+      this.sendRaw(payload);
+    }
   }
 
   private sendRaw(data: string): void {

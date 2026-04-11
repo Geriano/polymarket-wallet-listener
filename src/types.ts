@@ -122,7 +122,13 @@ export interface TradeEvent {
   outcome: OutcomeInfo;
   side: 'Buy' | 'Sell';
   size: number;
+  collateralAmount: number;
   price: number;
+  buyPrice: number;
+  sellPrice: number;
+  negRisk: boolean;
+  buyer: string;
+  seller: string;
   tx: string;
   block: number;
   timestamp: number;
@@ -344,6 +350,28 @@ export type WatcherEvent =
   | TradingPausedEvent
   | TradingUnpausedEvent;
 
+// ─── Event Type Map (for typed callbacks) ───────────────────────────────────
+
+export interface WatcherEventMap {
+  trade: TradeEvent;
+  split: SplitEvent;
+  merge: MergeEvent;
+  redeem: RedeemEvent;
+  match: MatchEvent;
+  cancel: CancelEvent;
+  fee: FeeEvent;
+  convert: ConvertEvent;
+  prepare: PrepareEvent;
+  resolve: ResolveEvent;
+  transfer: TransferEvent;
+  transfer_batch: TransferBatchEvent;
+  token_registered: TokenRegisteredEvent;
+  trading_paused: TradingPausedEvent;
+  trading_unpaused: TradingUnpausedEvent;
+}
+
+export type TypedHandler<K extends EventKind> = (event: WatcherEventMap[K]) => void | Promise<void>;
+
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 export interface ReconnectOptions {
@@ -394,6 +422,10 @@ export interface OrderFilledEvent {
   side: OrderSide;
   price: number;
   usdc_amount: number;
+  collateral_amount: number;
+  neg_risk: boolean;
+  buyer: Address;
+  seller: Address;
   block_number: number;
   tx_hash: B256;
   exchange: Address;
@@ -567,6 +599,18 @@ export interface SubscribeMessage {
   subscriptions: EventTypeSubscription[];
 }
 
+export interface ExtendMessage {
+  action: 'extend';
+  subscriptions: EventTypeSubscription[];
+}
+
+export interface ExcludeMessage {
+  action: 'exclude';
+  event_types: string[];
+}
+
+export type ProtocolMessage = SubscribeMessage | ExtendMessage | ExcludeMessage;
+
 export interface ServerEventMessage {
   type: 'event';
   data: Record<string, unknown>;
@@ -621,6 +665,9 @@ export interface InternalSubscription {
   proxyWallets: string[];
   options: Required<Pick<SubscribeOptions, 'events'>> & Pick<SubscribeOptions, 'outcomes'>;
   callback: ((event: WatcherEvent) => void | Promise<void>) | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  handlers: Map<EventKind, Set<(event: any) => void | Promise<void>>>;
+  autoEvents: Set<EventKind>;
 }
 
 export const DEFAULT_RECONNECT: ReconnectOptions = {
