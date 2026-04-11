@@ -329,11 +329,15 @@ export class EventRouter {
 
   private routePositionSplit(event: PositionSplitEvent, data: Record<string, unknown>): void {
     const { gamma, clob } = this.extractEnrichment(data);
+    const amount = parseFloat(event.amount) / 1e6;
     this.routeAddressEvent(event.stakeholder, 'split', {
       type: 'split',
       wallet: event.stakeholder,
       conditionId: event.condition_id,
-      amount: parseFloat(event.amount) / 1e6,
+      amount,
+      collateralAmount: event.collateral_amount ?? amount,
+      source: event.source ?? '',
+      negRisk: event.neg_risk ?? false,
       tx: event.tx_hash,
       block: event.block_number,
       timestamp: Date.now(),
@@ -345,11 +349,15 @@ export class EventRouter {
 
   private routePositionsMerge(event: PositionsMergeEvent, data: Record<string, unknown>): void {
     const { gamma, clob } = this.extractEnrichment(data);
+    const amount = parseFloat(event.amount) / 1e6;
     this.routeAddressEvent(event.stakeholder, 'merge', {
       type: 'merge',
       wallet: event.stakeholder,
       conditionId: event.condition_id,
-      amount: parseFloat(event.amount) / 1e6,
+      amount,
+      collateralAmount: event.collateral_amount ?? amount,
+      source: event.source ?? '',
+      negRisk: event.neg_risk ?? false,
       tx: event.tx_hash,
       block: event.block_number,
       timestamp: Date.now(),
@@ -361,11 +369,13 @@ export class EventRouter {
 
   private routePayoutRedemption(event: PayoutRedemptionEvent, data: Record<string, unknown>): void {
     const { gamma, clob } = this.extractEnrichment(data);
+    const payout = parseFloat(event.payout) / 1e6;
     this.routeAddressEvent(event.redeemer, 'redeem', {
       type: 'redeem',
       wallet: event.redeemer,
       conditionId: event.condition_id,
-      payout: parseFloat(event.payout) / 1e6,
+      payout,
+      collateralAmount: event.collateral_amount ?? payout,
       tx: event.tx_hash,
       block: event.block_number,
       timestamp: Date.now(),

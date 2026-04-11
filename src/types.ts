@@ -185,6 +185,9 @@ export interface SplitEvent {
   wallet: string;
   conditionId: string;
   amount: number;
+  collateralAmount: number;
+  source: string;
+  negRisk: boolean;
   tx: string;
   block: number;
   timestamp: number;
@@ -198,6 +201,9 @@ export interface MergeEvent {
   wallet: string;
   conditionId: string;
   amount: number;
+  collateralAmount: number;
+  source: string;
+  negRisk: boolean;
   tx: string;
   block: number;
   timestamp: number;
@@ -211,6 +217,7 @@ export interface RedeemEvent {
   wallet: string;
   conditionId: string;
   payout: number;
+  collateralAmount: number;
   tx: string;
   block: number;
   timestamp: number;
@@ -487,6 +494,9 @@ export interface PositionSplitEvent {
   stakeholder: Address;
   condition_id: B256;
   amount: U256;
+  collateral_amount: number;
+  source: Address;
+  neg_risk: boolean;
   block_number: number;
   tx_hash: B256;
 }
@@ -496,6 +506,9 @@ export interface PositionsMergeEvent {
   stakeholder: Address;
   condition_id: B256;
   amount: U256;
+  collateral_amount: number;
+  source: Address;
+  neg_risk: boolean;
   block_number: number;
   tx_hash: B256;
 }
@@ -505,6 +518,7 @@ export interface PayoutRedemptionEvent {
   redeemer: Address;
   condition_id: B256;
   payout: U256;
+  collateral_amount: number;
   block_number: number;
   tx_hash: B256;
 }

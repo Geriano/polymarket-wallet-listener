@@ -425,7 +425,10 @@ Wallet locked USDC to mint YES+NO outcome tokens (entering a market).
   type: 'split'
   wallet: string
   conditionId: string
-  amount: number         // USDC locked (raw / 1e6)
+  amount: number            // USDC locked (raw / 1e6)
+  collateralAmount: number  // same as amount (canonical name)
+  source: string            // contract address (CT or NRA)
+  negRisk: boolean          // true if from NegRisk Adapter
   tx: string
   block: number
   timestamp: number
@@ -441,7 +444,10 @@ Wallet burned YES+NO outcome tokens to release USDC (exiting a market).
   type: 'merge'
   wallet: string
   conditionId: string
-  amount: number         // USDC released (raw / 1e6)
+  amount: number            // USDC released (raw / 1e6)
+  collateralAmount: number  // same as amount (canonical name)
+  source: string            // contract address (CT or NRA)
+  negRisk: boolean          // true if from NegRisk Adapter
   tx: string
   block: number
   timestamp: number
@@ -457,7 +463,8 @@ Wallet claimed payout after market resolution.
   type: 'redeem'
   wallet: string
   conditionId: string
-  payout: number         // USDC claimed (raw / 1e6)
+  payout: number            // USDC claimed (raw / 1e6)
+  collateralAmount: number  // same as payout (canonical name)
   tx: string
   block: number
   timestamp: number
