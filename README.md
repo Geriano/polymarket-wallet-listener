@@ -7,7 +7,8 @@ Designed for copy-trading, whale-watching, and position-tracking workflows.
 ## Features
 
 - **Typed event callbacks**: `sub.traded(cb)`, `sub.splitted(cb)`, `sub.merged(cb)`, etc. — one method per event type, fully typed
-- **15 event types**: trade, match, cancel, fee, split, merge, redeem, convert, prepare, resolve, transfer, transfer_batch, token_registered, trading_paused, trading_unpaused
+- **22 event types**: trade, match, cancel, fee, split, merge, redeem, convert, prepare, resolve, transfer, transfer_batch, token_registered, trading_paused, trading_unpaused, order_preapproved, order_preapproval_invalidated, user_paused, user_unpaused, user_pause_block_interval_updated, fee_receiver_updated, max_fee_rate_updated
+- **Mempool predictor support**: every event carries `stage` (`'pending' | 'confirmed' | 'reverted'`) and `eventId` for optimistic UI and dedup
 - **Server-side enrichment**: every event carries `gamma` (market metadata) and `clob` (real-time pricing) fields automatically
 - **Buy/sell price normalization**: `buyPrice` and `sellPrice` on every trade event
 - **Incremental subscriptions**: leverages server `extend`/`exclude` protocol for efficient wallet addition/removal
@@ -252,6 +253,13 @@ Each method registers a typed handler and auto-subscribes to the event type. Ret
 | `sub.tokenRegistered(cb)` | `TokenRegisteredEvent` |
 | `sub.tradingPaused(cb)` | `TradingPausedEvent` |
 | `sub.tradingUnpaused(cb)` | `TradingUnpausedEvent` |
+| `sub.orderPreapproved(cb)` | `OrderPreapprovedEvent` |
+| `sub.orderPreapprovalInvalidated(cb)` | `OrderPreapprovalInvalidatedEvent` |
+| `sub.userPaused(cb)` | `UserPausedEvent` |
+| `sub.userUnpaused(cb)` | `UserUnpausedEvent` |
+| `sub.userPauseBlockIntervalUpdated(cb)` | `UserPauseBlockIntervalUpdatedEvent` |
+| `sub.feeReceiverUpdated(cb)` | `FeeReceiverUpdatedEvent` |
+| `sub.maxFeeRateUpdated(cb)` | `MaxFeeRateUpdatedEvent` |
 
 ```ts
 // Auto-subscribes to 'trade' event type on the wire
@@ -320,15 +328,27 @@ Close the WebSocket connection and clean up all timers and state. Emits a `disco
 
 ## Event Types
 
-All events include optional enrichment fields from the stream server:
+Every event carries the following common fields:
 
 ```ts
 {
-  gamma?: GammaEnrichment | null  // Market metadata (question, outcomes, volume, etc.)
-  clob?: ClobEnrichment | null    // Real-time pricing (best_bid, best_ask, midpoint, etc.)
-  raw: object                     // Full upstream event
+  tx: string                                       // Transaction hash
+  block: number | null                             // null when stage === 'pending'
+  timestamp: number                                // Local Date.now() at receipt
+  stage: 'pending' | 'confirmed' | 'reverted'      // Mempool predictor envelope
+  eventId: string                                  // 32-byte deterministic content hash
+  gamma?: GammaEnrichment | null                   // Market metadata
+  clob?: ClobEnrichment | null                     // Real-time pricing
+  raw: object                                      // Full upstream event
 }
 ```
+
+**Stage semantics** (server v0.9.0 mempool predictor):
+- `'pending'` — observed in the mempool but not yet mined; `block` is `null`
+- `'confirmed'` — mined into a confirmed block; `block` is set
+- `'reverted'` — was pending but the transaction reverted or was replaced
+
+For optimistic UI, render `'pending'` immediately and reconcile when the matching `eventId` arrives with `'confirmed'` or `'reverted'`. The server emits each `eventId` only once per stage.
 
 ### Trading Events
 
@@ -351,9 +371,14 @@ Emitted when a watched wallet buys or sells an outcome token (`order_filled`).
   negRisk: boolean          // true if fill from NegRisk CTF Exchange
   buyer: string             // Address that bought outcome tokens (server-derived)
   seller: string            // Address that sold outcome tokens (server-derived)
+  tokenId: string           // Outcome token id (V2 OrderFilled)
+  builder: string           // V2 builder address (zero when not built via builder)
+  metadata: string          // V2 metadata field
   tx: string
-  block: number
+  block: number | null
   timestamp: number
+  stage: 'pending' | 'confirmed' | 'reverted'
+  eventId: string
   normalized: boolean       // true if complement outcome was normalized to canonical
 }
 ```
@@ -378,9 +403,13 @@ Summary of a `matchOrders` call.
   takerAssetId: string
   makerAmountFilled: string
   takerAmountFilled: string
+  tokenId: string           // Outcome token id (V2 OrdersMatched)
+  side: 'Buy' | 'Sell'      // Taker side (V2 OrdersMatched)
   tx: string
-  block: number
+  block: number | null
   timestamp: number
+  stage: 'pending' | 'confirmed' | 'reverted'
+  eventId: string
 }
 ```
 
@@ -393,8 +422,10 @@ Maker cancelled their order on-chain. Broadcast to all subscriptions (no wallet-
   type: 'cancel'
   orderHash: string
   tx: string
-  block: number
+  block: number | null
   timestamp: number
+  stage: 'pending' | 'confirmed' | 'reverted'
+  eventId: string
 }
 ```
 
@@ -409,8 +440,10 @@ Fee collected from a trade.
   tokenId: string
   amount: string
   tx: string
-  block: number
+  block: number | null
   timestamp: number
+  stage: 'pending' | 'confirmed' | 'reverted'
+  eventId: string
 }
 ```
 
@@ -431,8 +464,10 @@ Wallet locked USDC to mint YES+NO outcome tokens (entering a market).
   source: string            // contract address (CT or NRA)
   negRisk: boolean          // true if from NegRisk Adapter
   tx: string
-  block: number
+  block: number | null
   timestamp: number
+  stage: 'pending' | 'confirmed' | 'reverted'
+  eventId: string
 }
 ```
 
@@ -451,8 +486,10 @@ Wallet burned YES+NO outcome tokens to release USDC (exiting a market).
   source: string            // contract address (CT or NRA)
   negRisk: boolean          // true if from NegRisk Adapter
   tx: string
-  block: number
+  block: number | null
   timestamp: number
+  stage: 'pending' | 'confirmed' | 'reverted'
+  eventId: string
 }
 ```
 
@@ -468,8 +505,10 @@ Wallet claimed payout after market resolution.
   payout: number            // USDC claimed (raw / 1e6)
   collateralAmount: number  // same as payout (canonical name)
   tx: string
-  block: number
+  block: number | null
   timestamp: number
+  stage: 'pending' | 'confirmed' | 'reverted'
+  eventId: string
 }
 ```
 
@@ -485,8 +524,10 @@ NO tokens converted to YES tokens in multi-outcome (neg-risk) markets.
   indexSet: string
   amount: number         // USDC value (raw / 1e6)
   tx: string
-  block: number
+  block: number | null
   timestamp: number
+  stage: 'pending' | 'confirmed' | 'reverted'
+  eventId: string
 }
 ```
 
@@ -504,8 +545,10 @@ New condition created. Broadcast to all subscriptions.
   questionId: string
   outcomeSlotCount: string
   tx: string
-  block: number
+  block: number | null
   timestamp: number
+  stage: 'pending' | 'confirmed' | 'reverted'
+  eventId: string
 }
 ```
 
@@ -522,8 +565,10 @@ Condition resolved with payout numerators. Broadcast to all subscriptions.
   outcomeSlotCount: string
   payoutNumerators: string[]
   tx: string
-  block: number
+  block: number | null
   timestamp: number
+  stage: 'pending' | 'confirmed' | 'reverted'
+  eventId: string
 }
 ```
 
@@ -542,8 +587,10 @@ Single ERC-1155 token transfer. Matched if `from` or `to` is a watched wallet.
   tokenId: string
   value: string
   tx: string
-  block: number
+  block: number | null
   timestamp: number
+  stage: 'pending' | 'confirmed' | 'reverted'
+  eventId: string
 }
 ```
 
@@ -560,8 +607,10 @@ Batch ERC-1155 token transfer. Matched if `from` or `to` is a watched wallet.
   ids: string[]
   values: string[]
   tx: string
-  block: number
+  block: number | null
   timestamp: number
+  stage: 'pending' | 'confirmed' | 'reverted'
+  eventId: string
 }
 ```
 
@@ -585,6 +634,95 @@ These are broadcast to all subscriptions (no wallet-address filter).
 
 ```ts
 { type: 'trading_unpaused', unpauser: string, tx, block, timestamp }
+```
+
+### V2 Admin Events
+
+Polymarket V2 exchange admin events (server v0.10.0). All include the common fields (`tx`, `block`, `timestamp`, `stage`, `eventId`).
+
+#### OrderPreapprovedEvent (`'order_preapproved'`)
+
+Broadcast — emitted when an order hash is preapproved on the V2 exchange.
+
+```ts
+{ type: 'order_preapproved', orderHash: string }
+```
+
+#### OrderPreapprovalInvalidatedEvent (`'order_preapproval_invalidated'`)
+
+Broadcast — emitted when a previously preapproved order is invalidated.
+
+```ts
+{ type: 'order_preapproval_invalidated', orderHash: string }
+```
+
+#### UserPausedEvent (`'user_paused'`)
+
+Address-routed (matched on `user`).
+
+```ts
+{ type: 'user_paused', user: string, effectivePauseBlock: string }
+```
+
+#### UserUnpausedEvent (`'user_unpaused'`)
+
+Address-routed (matched on `user`).
+
+```ts
+{ type: 'user_unpaused', user: string }
+```
+
+#### UserPauseBlockIntervalUpdatedEvent (`'user_pause_block_interval_updated'`)
+
+Broadcast.
+
+```ts
+{ type: 'user_pause_block_interval_updated', oldInterval: string, newInterval: string }
+```
+
+#### FeeReceiverUpdatedEvent (`'fee_receiver_updated'`)
+
+Broadcast.
+
+```ts
+{ type: 'fee_receiver_updated', feeReceiver: string }
+```
+
+#### MaxFeeRateUpdatedEvent (`'max_fee_rate_updated'`)
+
+Broadcast.
+
+```ts
+{ type: 'max_fee_rate_updated', maxFeeRate: string }
+```
+
+## Server Configuration
+
+The polymarket-stream server has feature flags that affect what the SDK receives:
+
+- **`WALLET_RESOLUTION`** (default `false`) — when enabled, the server resolves the actual user EOA via `eth_getTransactionByHash` for split/merge/redeem events and injects it as the `wallet` enrichment field. The SDK falls back to `stakeholder` / `redeemer` when this is off.
+- **`MEMPOOL_DISABLED`** (default `false`) — when `false`, the server's mempool predictor emits `'pending'` stage events ahead of confirmation. Set to `true` to receive only `'confirmed'` events.
+
+## Optimistic UI Pattern
+
+```ts
+const pending = new Map<string, TradeEvent>()
+
+sub.traded((event) => {
+  if (event.stage === 'pending') {
+    pending.set(event.eventId, event)
+    renderOptimistic(event)
+    return
+  }
+  if (event.stage === 'reverted') {
+    pending.delete(event.eventId)
+    rollback(event.eventId)
+    return
+  }
+  // confirmed
+  pending.delete(event.eventId)
+  renderConfirmed(event)
+})
 ```
 
 ## Lifecycle Events
@@ -926,6 +1064,13 @@ The SDK automatically chooses the optimal action: `extend` for pure additions, `
 | `token_registered` | `token_registered` |
 | `trading_paused` | `trading_paused` |
 | `trading_unpaused` | `trading_unpaused` |
+| `order_preapproved` | `order_preapproved` |
+| `order_preapproval_invalidated` | `order_preapproval_invalidated` |
+| `user_paused` | `user_paused` |
+| `user_unpaused` | `user_unpaused` |
+| `user_pause_block_interval_updated` | `user_pause_block_interval_updated` |
+| `fee_receiver_updated` | `fee_receiver_updated` |
+| `max_fee_rate_updated` | `max_fee_rate_updated` |
 
 ## License
 

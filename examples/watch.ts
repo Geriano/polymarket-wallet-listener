@@ -56,7 +56,7 @@ async function main() {
     const label = event.side === 'Buy' ? 'BUY ' : 'SELL';
     const price = event.side === 'Buy' ? event.buyPrice : event.sellPrice;
     console.log(
-      `[${ts}] ${label} | ${event.market} | ${event.outcome.name.padEnd(10)} | ` +
+      `[${ts}] [${event.stage}] ${label} | ${event.market} | ${event.outcome.name.padEnd(10)} | ` +
         `$${event.size.toFixed(2).padStart(10)} | ` +
         `price ${price.toFixed(4)} | ` +
         `bid ${event.clob?.best_bid ?? 'n/a'} ask ${event.clob?.best_ask ?? 'n/a'} | ` +

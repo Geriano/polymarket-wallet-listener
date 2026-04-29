@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-04-29
+
+### Added
+- **`stage`** field on every event — `'pending' | 'confirmed' | 'reverted'`. Tracks server v0.9.0 mempool predictor envelope state. Defaults to `'confirmed'` when older servers omit the field.
+- **`eventId`** field on every event — 32-byte deterministic content hash from server v0.10.1 dedup gate. Empty string when older servers omit the field.
+- **`tokenId`, `builder`, `metadata`** fields on `TradeEvent` — surfaced from server v0.10.0 V2 OrderFilled.
+- **`tokenId`, `side`** fields on `MatchEvent` — surfaced from server v0.10.0 V2 OrdersMatched.
+- **7 new V2 admin event types** with typed callbacks:
+  - `orderPreapproved()` (broadcast) — `OrderPreapprovedEvent`
+  - `orderPreapprovalInvalidated()` (broadcast) — `OrderPreapprovalInvalidatedEvent`
+  - `userPaused()` (address-routed via `user`) — `UserPausedEvent` with `effectivePauseBlock`
+  - `userUnpaused()` (address-routed via `user`) — `UserUnpausedEvent`
+  - `userPauseBlockIntervalUpdated()` (broadcast) — `UserPauseBlockIntervalUpdatedEvent`
+  - `feeReceiverUpdated()` (broadcast) — `FeeReceiverUpdatedEvent`
+  - `maxFeeRateUpdated()` (broadcast) — `MaxFeeRateUpdatedEvent`
+- **`EventStage`** exported type alias.
+
+### Breaking
+- **`block: number | null`** on every event — was `number`. `null` for `pending`-stage events from the mempool predictor (block isn't known until confirmation). Strict numeric handlers must add a null check (e.g., `event.block ?? 'pending'`).
+
+### Notes
+- Server-side: `WALLET_RESOLUTION` defaults to `false` and `MEMPOOL_DISABLED` defaults to `false` on the polymarket-stream server. Set both via env vars to control wallet enrichment and mempool predictor behavior.
+
 ## [0.3.3] - 2026-04-11
 
 ### Added

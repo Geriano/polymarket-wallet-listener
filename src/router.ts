@@ -4,11 +4,16 @@ import type {
   ConditionPreparationEvent,
   ConditionResolutionEvent,
   EventKind,
+  EventStage,
   FeeChargedEvent,
+  FeeReceiverUpdatedUpstreamEvent,
   GammaEnrichment,
   InternalSubscription,
+  MaxFeeRateUpdatedUpstreamEvent,
   OrderCancelledEvent,
   OrderFilledEvent,
+  OrderPreapprovalInvalidatedUpstreamEvent,
+  OrderPreapprovedUpstreamEvent,
   OrdersMatchedEvent,
   OutcomeFilter,
   OutcomeInfo,
@@ -21,6 +26,9 @@ import type {
   TradingUnpausedUpstreamEvent,
   TransferBatchUpstreamEvent,
   TransferSingleUpstreamEvent,
+  UserPauseBlockIntervalUpdatedUpstreamEvent,
+  UserPausedUpstreamEvent,
+  UserUnpausedUpstreamEvent,
   WatcherEvent,
 } from './types.js';
 
@@ -144,6 +152,47 @@ export class EventRouter {
       case 'trading_unpaused':
         this.routeBroadcast('trading_unpaused', data as unknown as TradingUnpausedUpstreamEvent, data);
         break;
+
+      // ── V2 Admin ──
+      case 'order_preapproved':
+        this.routeBroadcast('order_preapproved', data as unknown as OrderPreapprovedUpstreamEvent, data);
+        break;
+      case 'order_preapproval_invalidated':
+        this.routeBroadcast(
+          'order_preapproval_invalidated',
+          data as unknown as OrderPreapprovalInvalidatedUpstreamEvent,
+          data,
+        );
+        break;
+      case 'user_paused':
+        if (!data.user) break;
+        this.routeUserPaused(data as unknown as UserPausedUpstreamEvent, data);
+        break;
+      case 'user_unpaused':
+        if (!data.user) break;
+        this.routeUserUnpaused(data as unknown as UserUnpausedUpstreamEvent, data);
+        break;
+      case 'user_pause_block_interval_updated':
+        this.routeBroadcast(
+          'user_pause_block_interval_updated',
+          data as unknown as UserPauseBlockIntervalUpdatedUpstreamEvent,
+          data,
+        );
+        break;
+      case 'fee_receiver_updated':
+        this.routeBroadcast(
+          'fee_receiver_updated',
+          data as unknown as FeeReceiverUpdatedUpstreamEvent,
+          data,
+        );
+        break;
+      case 'max_fee_rate_updated':
+        this.routeBroadcast(
+          'max_fee_rate_updated',
+          data as unknown as MaxFeeRateUpdatedUpstreamEvent,
+          data,
+        );
+        break;
     }
   }
 
@@ -156,6 +205,16 @@ export class EventRouter {
     const gamma = (data.gamma as GammaEnrichment) ?? null;
     const clob = (data.clob as ClobEnrichment) ?? null;
     return { gamma, clob };
+  }
+
+  private extractStage(data: Record<string, unknown>): EventStage {
+    const stage = data.stage;
+    if (stage === 'pending' || stage === 'reverted') return stage;
+    return 'confirmed';
+  }
+
+  private extractEventId(data: Record<string, unknown>): string {
+    return typeof data.event_id === 'string' ? data.event_id : '';
   }
 
   private extractGammaOutcomes(data: Record<string, unknown>): void {
@@ -265,10 +324,15 @@ export class EventRouter {
         negRisk: event.neg_risk ?? false,
         buyer: event.buyer ?? '',
         seller: event.seller ?? '',
+        tokenId: event.token_id ?? '',
+        builder: event.builder ?? '',
+        metadata: event.metadata ?? '',
         tx: event.tx_hash,
         block: event.block_number,
         timestamp: Date.now(),
         normalized: norm.normalized,
+        stage: this.extractStage(data),
+        eventId: this.extractEventId(data),
         gamma,
         clob,
         raw: event,
@@ -286,9 +350,13 @@ export class EventRouter {
       takerAssetId: event.taker_asset_id,
       makerAmountFilled: event.maker_amount_filled,
       takerAmountFilled: event.taker_amount_filled,
+      tokenId: event.token_id ?? '',
+      side: event.side ?? 'Buy',
       tx: event.tx_hash,
       block: event.block_number,
       timestamp: Date.now(),
+      stage: this.extractStage(data),
+      eventId: this.extractEventId(data),
       gamma,
       clob,
       raw: event,
@@ -303,6 +371,8 @@ export class EventRouter {
       tx: event.tx_hash,
       block: event.block_number,
       timestamp: Date.now(),
+      stage: this.extractStage(data),
+      eventId: this.extractEventId(data),
       gamma,
       clob,
       raw: event,
@@ -319,6 +389,8 @@ export class EventRouter {
       tx: event.tx_hash,
       block: event.block_number,
       timestamp: Date.now(),
+      stage: this.extractStage(data),
+      eventId: this.extractEventId(data),
       gamma,
       clob,
       raw: event,
@@ -343,6 +415,8 @@ export class EventRouter {
       tx: event.tx_hash,
       block: event.block_number,
       timestamp: Date.now(),
+      stage: this.extractStage(data),
+      eventId: this.extractEventId(data),
       gamma,
       clob,
       raw: event,
@@ -366,6 +440,8 @@ export class EventRouter {
       tx: event.tx_hash,
       block: event.block_number,
       timestamp: Date.now(),
+      stage: this.extractStage(data),
+      eventId: this.extractEventId(data),
       gamma,
       clob,
       raw: event,
@@ -386,6 +462,8 @@ export class EventRouter {
       tx: event.tx_hash,
       block: event.block_number,
       timestamp: Date.now(),
+      stage: this.extractStage(data),
+      eventId: this.extractEventId(data),
       gamma,
       clob,
       raw: event,
@@ -404,6 +482,8 @@ export class EventRouter {
       tx: event.tx_hash,
       block: event.block_number,
       timestamp: Date.now(),
+      stage: this.extractStage(data),
+      eventId: this.extractEventId(data),
       gamma,
       clob,
       raw: event,
@@ -424,6 +504,8 @@ export class EventRouter {
       tx: event.tx_hash,
       block: event.block_number,
       timestamp: Date.now(),
+      stage: this.extractStage(data),
+      eventId: this.extractEventId(data),
       gamma,
       clob,
       raw: event,
@@ -443,6 +525,8 @@ export class EventRouter {
       tx: event.tx_hash,
       block: event.block_number,
       timestamp: Date.now(),
+      stage: this.extractStage(data),
+      eventId: this.extractEventId(data),
       gamma,
       clob,
       raw: event,
@@ -458,6 +542,8 @@ export class EventRouter {
     data: Record<string, unknown>,
   ): void {
     const { gamma, clob } = this.extractEnrichment(data);
+    const stage = this.extractStage(data);
+    const eventId = this.extractEventId(data);
     let watcherEvent: WatcherEvent;
 
     switch (kind) {
@@ -472,6 +558,8 @@ export class EventRouter {
           tx: e.tx_hash,
           block: e.block_number,
           timestamp: Date.now(),
+          stage,
+          eventId,
           gamma,
           clob,
           raw: event as object,
@@ -490,6 +578,8 @@ export class EventRouter {
           tx: e.tx_hash,
           block: e.block_number,
           timestamp: Date.now(),
+          stage,
+          eventId,
           gamma,
           clob,
           raw: event as object,
@@ -506,6 +596,8 @@ export class EventRouter {
           tx: e.tx_hash,
           block: e.block_number,
           timestamp: Date.now(),
+          stage,
+          eventId,
           gamma,
           clob,
           raw: event as object,
@@ -520,6 +612,8 @@ export class EventRouter {
           tx: e.tx_hash,
           block: e.block_number,
           timestamp: Date.now(),
+          stage,
+          eventId,
           gamma,
           clob,
           raw: event as object,
@@ -534,6 +628,89 @@ export class EventRouter {
           tx: e.tx_hash,
           block: e.block_number,
           timestamp: Date.now(),
+          stage,
+          eventId,
+          gamma,
+          clob,
+          raw: event as object,
+        };
+        break;
+      }
+      case 'order_preapproved': {
+        const e = event as unknown as OrderPreapprovedUpstreamEvent;
+        watcherEvent = {
+          type: 'order_preapproved',
+          orderHash: e.order_hash,
+          tx: e.tx_hash,
+          block: e.block_number,
+          timestamp: Date.now(),
+          stage,
+          eventId,
+          gamma,
+          clob,
+          raw: event as object,
+        };
+        break;
+      }
+      case 'order_preapproval_invalidated': {
+        const e = event as unknown as OrderPreapprovalInvalidatedUpstreamEvent;
+        watcherEvent = {
+          type: 'order_preapproval_invalidated',
+          orderHash: e.order_hash,
+          tx: e.tx_hash,
+          block: e.block_number,
+          timestamp: Date.now(),
+          stage,
+          eventId,
+          gamma,
+          clob,
+          raw: event as object,
+        };
+        break;
+      }
+      case 'user_pause_block_interval_updated': {
+        const e = event as unknown as UserPauseBlockIntervalUpdatedUpstreamEvent;
+        watcherEvent = {
+          type: 'user_pause_block_interval_updated',
+          oldInterval: e.old_interval,
+          newInterval: e.new_interval,
+          tx: e.tx_hash,
+          block: e.block_number,
+          timestamp: Date.now(),
+          stage,
+          eventId,
+          gamma,
+          clob,
+          raw: event as object,
+        };
+        break;
+      }
+      case 'fee_receiver_updated': {
+        const e = event as unknown as FeeReceiverUpdatedUpstreamEvent;
+        watcherEvent = {
+          type: 'fee_receiver_updated',
+          feeReceiver: e.fee_receiver,
+          tx: e.tx_hash,
+          block: e.block_number,
+          timestamp: Date.now(),
+          stage,
+          eventId,
+          gamma,
+          clob,
+          raw: event as object,
+        };
+        break;
+      }
+      case 'max_fee_rate_updated': {
+        const e = event as unknown as MaxFeeRateUpdatedUpstreamEvent;
+        watcherEvent = {
+          type: 'max_fee_rate_updated',
+          maxFeeRate: e.max_fee_rate,
+          tx: e.tx_hash,
+          block: e.block_number,
+          timestamp: Date.now(),
+          stage,
+          eventId,
           gamma,
           clob,
           raw: event as object,
@@ -545,6 +722,41 @@ export class EventRouter {
     }
 
     this.routeBroadcastEvent(kind, watcherEvent);
+  }
+
+  // ─── V2 Admin Address-Routed Events ───────────────────────────────────────
+
+  private routeUserPaused(event: UserPausedUpstreamEvent, data: Record<string, unknown>): void {
+    const { gamma, clob } = this.extractEnrichment(data);
+    this.routeAddressEvent(event.user, 'user_paused', {
+      type: 'user_paused',
+      user: event.user,
+      effectivePauseBlock: event.effective_pause_block,
+      tx: event.tx_hash,
+      block: event.block_number,
+      timestamp: Date.now(),
+      stage: this.extractStage(data),
+      eventId: this.extractEventId(data),
+      gamma,
+      clob,
+      raw: event,
+    });
+  }
+
+  private routeUserUnpaused(event: UserUnpausedUpstreamEvent, data: Record<string, unknown>): void {
+    const { gamma, clob } = this.extractEnrichment(data);
+    this.routeAddressEvent(event.user, 'user_unpaused', {
+      type: 'user_unpaused',
+      user: event.user,
+      tx: event.tx_hash,
+      block: event.block_number,
+      timestamp: Date.now(),
+      stage: this.extractStage(data),
+      eventId: this.extractEventId(data),
+      gamma,
+      clob,
+      raw: event,
+    });
   }
 
   // ─── Dispatch Helpers ─────────────────────────────────────────────────────

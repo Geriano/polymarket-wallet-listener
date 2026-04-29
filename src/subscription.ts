@@ -135,6 +135,34 @@ export class Subscription {
     return this._on('trading_unpaused', callback);
   }
 
+  orderPreapproved(callback: TypedHandler<'order_preapproved'>): () => void {
+    return this._on('order_preapproved', callback);
+  }
+
+  orderPreapprovalInvalidated(callback: TypedHandler<'order_preapproval_invalidated'>): () => void {
+    return this._on('order_preapproval_invalidated', callback);
+  }
+
+  userPaused(callback: TypedHandler<'user_paused'>): () => void {
+    return this._on('user_paused', callback);
+  }
+
+  userUnpaused(callback: TypedHandler<'user_unpaused'>): () => void {
+    return this._on('user_unpaused', callback);
+  }
+
+  userPauseBlockIntervalUpdated(callback: TypedHandler<'user_pause_block_interval_updated'>): () => void {
+    return this._on('user_pause_block_interval_updated', callback);
+  }
+
+  feeReceiverUpdated(callback: TypedHandler<'fee_receiver_updated'>): () => void {
+    return this._on('fee_receiver_updated', callback);
+  }
+
+  maxFeeRateUpdated(callback: TypedHandler<'max_fee_rate_updated'>): () => void {
+    return this._on('max_fee_rate_updated', callback);
+  }
+
   // ─── Internal ───────────────────────────────────────────────────────────
 
   private _on<K extends EventKind>(

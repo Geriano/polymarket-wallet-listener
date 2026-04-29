@@ -17,6 +17,13 @@ const ADDRESS_FIELDS: Record<EventKind, string[]> = {
   token_registered: [],
   trading_paused: [],
   trading_unpaused: [],
+  order_preapproved: [],
+  order_preapproval_invalidated: [],
+  user_paused: ['user'],
+  user_unpaused: ['user'],
+  user_pause_block_interval_updated: [],
+  fee_receiver_updated: [],
+  max_fee_rate_updated: [],
 };
 
 /**

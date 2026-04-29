@@ -27,7 +27,16 @@ export type EventKind =
   | 'transfer_batch'
   | 'token_registered'
   | 'trading_paused'
-  | 'trading_unpaused';
+  | 'trading_unpaused'
+  | 'order_preapproved'
+  | 'order_preapproval_invalidated'
+  | 'user_paused'
+  | 'user_unpaused'
+  | 'user_pause_block_interval_updated'
+  | 'fee_receiver_updated'
+  | 'max_fee_rate_updated';
+
+export type EventStage = 'pending' | 'confirmed' | 'reverted';
 
 export interface OutcomeInfo {
   id: string;
@@ -129,10 +138,15 @@ export interface TradeEvent {
   negRisk: boolean;
   buyer: string;
   seller: string;
+  tokenId: string;
+  builder: string;
+  metadata: string;
   tx: string;
-  block: number;
+  block: number | null;
   timestamp: number;
   normalized: boolean;
+  stage: EventStage;
+  eventId: string;
   gamma?: GammaEnrichment | null;
   clob?: ClobEnrichment | null;
   raw: object;
@@ -146,9 +160,13 @@ export interface MatchEvent {
   takerAssetId: string;
   makerAmountFilled: string;
   takerAmountFilled: string;
+  tokenId: string;
+  side: 'Buy' | 'Sell';
   tx: string;
-  block: number;
+  block: number | null;
   timestamp: number;
+  stage: EventStage;
+  eventId: string;
   gamma?: GammaEnrichment | null;
   clob?: ClobEnrichment | null;
   raw: object;
@@ -158,8 +176,10 @@ export interface CancelEvent {
   type: 'cancel';
   orderHash: string;
   tx: string;
-  block: number;
+  block: number | null;
   timestamp: number;
+  stage: EventStage;
+  eventId: string;
   gamma?: GammaEnrichment | null;
   clob?: ClobEnrichment | null;
   raw: object;
@@ -171,8 +191,10 @@ export interface FeeEvent {
   tokenId: string;
   amount: string;
   tx: string;
-  block: number;
+  block: number | null;
   timestamp: number;
+  stage: EventStage;
+  eventId: string;
   gamma?: GammaEnrichment | null;
   clob?: ClobEnrichment | null;
   raw: object;
@@ -190,8 +212,10 @@ export interface SplitEvent {
   source: string;
   negRisk: boolean;
   tx: string;
-  block: number;
+  block: number | null;
   timestamp: number;
+  stage: EventStage;
+  eventId: string;
   gamma?: GammaEnrichment | null;
   clob?: ClobEnrichment | null;
   raw: object;
@@ -207,8 +231,10 @@ export interface MergeEvent {
   source: string;
   negRisk: boolean;
   tx: string;
-  block: number;
+  block: number | null;
   timestamp: number;
+  stage: EventStage;
+  eventId: string;
   gamma?: GammaEnrichment | null;
   clob?: ClobEnrichment | null;
   raw: object;
@@ -221,8 +247,10 @@ export interface RedeemEvent {
   payout: number;
   collateralAmount: number;
   tx: string;
-  block: number;
+  block: number | null;
   timestamp: number;
+  stage: EventStage;
+  eventId: string;
   gamma?: GammaEnrichment | null;
   clob?: ClobEnrichment | null;
   raw: object;
@@ -235,8 +263,10 @@ export interface ConvertEvent {
   indexSet: string;
   amount: number;
   tx: string;
-  block: number;
+  block: number | null;
   timestamp: number;
+  stage: EventStage;
+  eventId: string;
   gamma?: GammaEnrichment | null;
   clob?: ClobEnrichment | null;
   raw: object;
@@ -251,8 +281,10 @@ export interface PrepareEvent {
   questionId: string;
   outcomeSlotCount: string;
   tx: string;
-  block: number;
+  block: number | null;
   timestamp: number;
+  stage: EventStage;
+  eventId: string;
   gamma?: GammaEnrichment | null;
   clob?: ClobEnrichment | null;
   raw: object;
@@ -266,8 +298,10 @@ export interface ResolveEvent {
   outcomeSlotCount: string;
   payoutNumerators: string[];
   tx: string;
-  block: number;
+  block: number | null;
   timestamp: number;
+  stage: EventStage;
+  eventId: string;
   gamma?: GammaEnrichment | null;
   clob?: ClobEnrichment | null;
   raw: object;
@@ -283,8 +317,10 @@ export interface TransferEvent {
   tokenId: string;
   value: string;
   tx: string;
-  block: number;
+  block: number | null;
   timestamp: number;
+  stage: EventStage;
+  eventId: string;
   gamma?: GammaEnrichment | null;
   clob?: ClobEnrichment | null;
   raw: object;
@@ -298,8 +334,10 @@ export interface TransferBatchEvent {
   ids: string[];
   values: string[];
   tx: string;
-  block: number;
+  block: number | null;
   timestamp: number;
+  stage: EventStage;
+  eventId: string;
   gamma?: GammaEnrichment | null;
   clob?: ClobEnrichment | null;
   raw: object;
@@ -313,8 +351,10 @@ export interface TokenRegisteredEvent {
   token1: string;
   conditionId: string;
   tx: string;
-  block: number;
+  block: number | null;
   timestamp: number;
+  stage: EventStage;
+  eventId: string;
   gamma?: GammaEnrichment | null;
   clob?: ClobEnrichment | null;
   raw: object;
@@ -324,8 +364,10 @@ export interface TradingPausedEvent {
   type: 'trading_paused';
   pauser: string;
   tx: string;
-  block: number;
+  block: number | null;
   timestamp: number;
+  stage: EventStage;
+  eventId: string;
   gamma?: GammaEnrichment | null;
   clob?: ClobEnrichment | null;
   raw: object;
@@ -335,8 +377,105 @@ export interface TradingUnpausedEvent {
   type: 'trading_unpaused';
   unpauser: string;
   tx: string;
-  block: number;
+  block: number | null;
   timestamp: number;
+  stage: EventStage;
+  eventId: string;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
+  raw: object;
+}
+
+// ── V2 Admin Events ──
+
+export interface OrderPreapprovedEvent {
+  type: 'order_preapproved';
+  orderHash: string;
+  tx: string;
+  block: number | null;
+  timestamp: number;
+  stage: EventStage;
+  eventId: string;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
+  raw: object;
+}
+
+export interface OrderPreapprovalInvalidatedEvent {
+  type: 'order_preapproval_invalidated';
+  orderHash: string;
+  tx: string;
+  block: number | null;
+  timestamp: number;
+  stage: EventStage;
+  eventId: string;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
+  raw: object;
+}
+
+export interface UserPausedEvent {
+  type: 'user_paused';
+  user: string;
+  effectivePauseBlock: string;
+  tx: string;
+  block: number | null;
+  timestamp: number;
+  stage: EventStage;
+  eventId: string;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
+  raw: object;
+}
+
+export interface UserUnpausedEvent {
+  type: 'user_unpaused';
+  user: string;
+  tx: string;
+  block: number | null;
+  timestamp: number;
+  stage: EventStage;
+  eventId: string;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
+  raw: object;
+}
+
+export interface UserPauseBlockIntervalUpdatedEvent {
+  type: 'user_pause_block_interval_updated';
+  oldInterval: string;
+  newInterval: string;
+  tx: string;
+  block: number | null;
+  timestamp: number;
+  stage: EventStage;
+  eventId: string;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
+  raw: object;
+}
+
+export interface FeeReceiverUpdatedEvent {
+  type: 'fee_receiver_updated';
+  feeReceiver: string;
+  tx: string;
+  block: number | null;
+  timestamp: number;
+  stage: EventStage;
+  eventId: string;
+  gamma?: GammaEnrichment | null;
+  clob?: ClobEnrichment | null;
+  raw: object;
+}
+
+export interface MaxFeeRateUpdatedEvent {
+  type: 'max_fee_rate_updated';
+  maxFeeRate: string;
+  tx: string;
+  block: number | null;
+  timestamp: number;
+  stage: EventStage;
+  eventId: string;
   gamma?: GammaEnrichment | null;
   clob?: ClobEnrichment | null;
   raw: object;
@@ -357,7 +496,14 @@ export type WatcherEvent =
   | TransferBatchEvent
   | TokenRegisteredEvent
   | TradingPausedEvent
-  | TradingUnpausedEvent;
+  | TradingUnpausedEvent
+  | OrderPreapprovedEvent
+  | OrderPreapprovalInvalidatedEvent
+  | UserPausedEvent
+  | UserUnpausedEvent
+  | UserPauseBlockIntervalUpdatedEvent
+  | FeeReceiverUpdatedEvent
+  | MaxFeeRateUpdatedEvent;
 
 // ─── Event Type Map (for typed callbacks) ───────────────────────────────────
 
@@ -377,6 +523,13 @@ export interface WatcherEventMap {
   token_registered: TokenRegisteredEvent;
   trading_paused: TradingPausedEvent;
   trading_unpaused: TradingUnpausedEvent;
+  order_preapproved: OrderPreapprovedEvent;
+  order_preapproval_invalidated: OrderPreapprovalInvalidatedEvent;
+  user_paused: UserPausedEvent;
+  user_unpaused: UserUnpausedEvent;
+  user_pause_block_interval_updated: UserPauseBlockIntervalUpdatedEvent;
+  fee_receiver_updated: FeeReceiverUpdatedEvent;
+  max_fee_rate_updated: MaxFeeRateUpdatedEvent;
 }
 
 export type TypedHandler<K extends EventKind> = (event: WatcherEventMap[K]) => void | Promise<void>;
@@ -435,7 +588,10 @@ export interface OrderFilledEvent {
   neg_risk: boolean;
   buyer: Address;
   seller: Address;
-  block_number: number;
+  token_id: U256;
+  builder: Address;
+  metadata: B256;
+  block_number: number | null;
   tx_hash: B256;
   exchange: Address;
 }
@@ -448,14 +604,16 @@ export interface OrdersMatchedEvent {
   taker_asset_id: U256;
   maker_amount_filled: U256;
   taker_amount_filled: U256;
-  block_number: number;
+  token_id: U256;
+  side: OrderSide;
+  block_number: number | null;
   tx_hash: B256;
 }
 
 export interface OrderCancelledEvent {
   readonly type: 'order_cancelled';
   order_hash: B256;
-  block_number: number;
+  block_number: number | null;
   tx_hash: B256;
 }
 
@@ -464,7 +622,7 @@ export interface FeeChargedEvent {
   receiver: Address;
   token_id: U256;
   amount: U256;
-  block_number: number;
+  block_number: number | null;
   tx_hash: B256;
 }
 
@@ -473,21 +631,21 @@ export interface TokenRegisteredUpstreamEvent {
   token0: U256;
   token1: U256;
   condition_id: B256;
-  block_number: number;
+  block_number: number | null;
   tx_hash: B256;
 }
 
 export interface TradingPausedUpstreamEvent {
   readonly type: 'trading_paused';
   pauser: Address;
-  block_number: number;
+  block_number: number | null;
   tx_hash: B256;
 }
 
 export interface TradingUnpausedUpstreamEvent {
   readonly type: 'trading_unpaused';
   unpauser: Address;
-  block_number: number;
+  block_number: number | null;
   tx_hash: B256;
 }
 
@@ -499,7 +657,7 @@ export interface PositionSplitEvent {
   collateral_amount: number;
   source: Address;
   neg_risk: boolean;
-  block_number: number;
+  block_number: number | null;
   tx_hash: B256;
 }
 
@@ -511,7 +669,7 @@ export interface PositionsMergeEvent {
   collateral_amount: number;
   source: Address;
   neg_risk: boolean;
-  block_number: number;
+  block_number: number | null;
   tx_hash: B256;
 }
 
@@ -521,7 +679,7 @@ export interface PayoutRedemptionEvent {
   condition_id: B256;
   payout: U256;
   collateral_amount: number;
-  block_number: number;
+  block_number: number | null;
   tx_hash: B256;
 }
 
@@ -531,7 +689,7 @@ export interface PositionsConvertedEvent {
   market_id: B256;
   index_set: U256;
   amount: U256;
-  block_number: number;
+  block_number: number | null;
   tx_hash: B256;
 }
 
@@ -541,7 +699,7 @@ export interface ConditionPreparationEvent {
   oracle: Address;
   question_id: B256;
   outcome_slot_count: U256;
-  block_number: number;
+  block_number: number | null;
   tx_hash: B256;
 }
 
@@ -552,7 +710,7 @@ export interface ConditionResolutionEvent {
   question_id: B256;
   outcome_slot_count: U256;
   payout_numerators: U256[];
-  block_number: number;
+  block_number: number | null;
   tx_hash: B256;
 }
 
@@ -563,7 +721,7 @@ export interface TransferSingleUpstreamEvent {
   to: Address;
   id: U256;
   value: U256;
-  block_number: number;
+  block_number: number | null;
   tx_hash: B256;
 }
 
@@ -574,7 +732,60 @@ export interface TransferBatchUpstreamEvent {
   to: Address;
   ids: U256[];
   values: U256[];
-  block_number: number;
+  block_number: number | null;
+  tx_hash: B256;
+}
+
+// ── V2 Admin Wire Events ──
+
+export interface OrderPreapprovedUpstreamEvent {
+  readonly type: 'order_preapproved';
+  order_hash: B256;
+  block_number: number | null;
+  tx_hash: B256;
+}
+
+export interface OrderPreapprovalInvalidatedUpstreamEvent {
+  readonly type: 'order_preapproval_invalidated';
+  order_hash: B256;
+  block_number: number | null;
+  tx_hash: B256;
+}
+
+export interface UserPausedUpstreamEvent {
+  readonly type: 'user_paused';
+  user: Address;
+  effective_pause_block: U256;
+  block_number: number | null;
+  tx_hash: B256;
+}
+
+export interface UserUnpausedUpstreamEvent {
+  readonly type: 'user_unpaused';
+  user: Address;
+  block_number: number | null;
+  tx_hash: B256;
+}
+
+export interface UserPauseBlockIntervalUpdatedUpstreamEvent {
+  readonly type: 'user_pause_block_interval_updated';
+  old_interval: U256;
+  new_interval: U256;
+  block_number: number | null;
+  tx_hash: B256;
+}
+
+export interface FeeReceiverUpdatedUpstreamEvent {
+  readonly type: 'fee_receiver_updated';
+  fee_receiver: Address;
+  block_number: number | null;
+  tx_hash: B256;
+}
+
+export interface MaxFeeRateUpdatedUpstreamEvent {
+  readonly type: 'max_fee_rate_updated';
+  max_fee_rate: U256;
+  block_number: number | null;
   tx_hash: B256;
 }
 
@@ -593,7 +804,14 @@ export type UpstreamEvent =
   | ConditionPreparationEvent
   | ConditionResolutionEvent
   | TransferSingleUpstreamEvent
-  | TransferBatchUpstreamEvent;
+  | TransferBatchUpstreamEvent
+  | OrderPreapprovedUpstreamEvent
+  | OrderPreapprovalInvalidatedUpstreamEvent
+  | UserPausedUpstreamEvent
+  | UserUnpausedUpstreamEvent
+  | UserPauseBlockIntervalUpdatedUpstreamEvent
+  | FeeReceiverUpdatedUpstreamEvent
+  | MaxFeeRateUpdatedUpstreamEvent;
 
 // ─── Wire Protocol ───────────────────────────────────────────────────────────
 
@@ -671,6 +889,13 @@ export const EVENT_KIND_TO_WIRE: Record<EventKind, string> = {
   token_registered: 'token_registered',
   trading_paused: 'trading_paused',
   trading_unpaused: 'trading_unpaused',
+  order_preapproved: 'order_preapproved',
+  order_preapproval_invalidated: 'order_preapproval_invalidated',
+  user_paused: 'user_paused',
+  user_unpaused: 'user_unpaused',
+  user_pause_block_interval_updated: 'user_pause_block_interval_updated',
+  fee_receiver_updated: 'fee_receiver_updated',
+  max_fee_rate_updated: 'max_fee_rate_updated',
 };
 
 // ─── Internal Types ──────────────────────────────────────────────────────────
